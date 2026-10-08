@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Notas clínicas · dataset reparado</title>
+  <style>
+    :root{font-family:Arial,sans-serif;color:#253041;background:#f3f5f8;font-size:15px}
+    *{box-sizing:border-box}body{margin:0}button,input,select,textarea{font:inherit}
+    header{padding:22px 28px;background:#fff;border-bottom:1px solid #dce1e9;display:flex;justify-content:space-between;gap:20px;align-items:center}
+    h1{font-size:23px;margin:0 0 5px}header p{margin:0;color:#647083;font-size:13px}
+    button{border:1px solid #cdd4df;border-radius:7px;background:#fff;color:#253041;padding:9px 13px;cursor:pointer}button:hover{background:#eef1f8}button:disabled{opacity:.45;cursor:default}
+    .toolbar{padding:18px 28px;display:grid;grid-template-columns:minmax(200px,1fr) 260px 210px;gap:12px;align-items:end}
+    label{display:block;font-size:12px;font-weight:bold;color:#647083;margin-bottom:6px}
+    input,select,textarea{width:100%;border:1px solid #cdd4df;border-radius:7px;background:white;padding:10px;color:#253041}
+    .workspace{display:grid;grid-template-columns:330px minmax(0,1fr);gap:20px;padding:0 28px 28px;align-items:start}
+    .list-panel,.detail{background:#fff;border:1px solid #dce1e9;border-radius:10px;overflow:hidden}
+    .list-head{padding:14px 16px;border-bottom:1px solid #e5e9ef;font-size:13px;color:#647083}
+    #cases{max-height:calc(100vh - 260px);min-height:300px;overflow:auto}
+    .case{display:block;text-align:left;width:100%;padding:13px 16px;border:0;border-bottom:1px solid #eef0f5;border-radius:0;background:white}
+    .case.active{background:#edf0fc;box-shadow:inset 3px 0 #5664bf}.case strong{display:block;font-size:14px;margin:5px 0;line-height:1.4}.case small{color:#647083;font-size:12px}
+    .case span{display:block;font-size:12px;color:#5664bf}.detail{padding:24px 28px}h2{margin:8px 0 18px;font-size:24px;line-height:1.4;overflow-wrap:anywhere}
+    .navigation{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px;color:#647083}.navigation div{display:flex;gap:8px}
+    .specialty{color:#5664bf;font-weight:bold;font-size:14px;overflow-wrap:anywhere}.field{margin-top:25px}.field h3{margin:0 0 9px;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:#647083}
+    .text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75;font-size:15px}.clinical{background:#f8f9fc;border-radius:8px;padding:18px 20px}
+    .observation{background:#fff8e6;border-left:3px solid #c49738;padding:12px 16px;line-height:1.6;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:20px}
+    .empty{color:#8690a0;font-style:italic}textarea{min-height:105px;line-height:1.6;resize:vertical}.note-help{font-size:12px;color:#647083;margin:7px 0 0}.hidden{display:none!important}
+    #more{width:100%;border-radius:0;border:0;padding:14px;color:#5664bf}#empty-detail{padding:40px;color:#647083}
+    @media(max-width:900px){.toolbar{grid-template-columns:1fr 1fr}.search{grid-column:1/-1}.workspace{grid-template-columns:1fr}.list-panel{max-height:270px}#cases{max-height:200px;min-height:0}.detail{padding:20px}header{align-items:flex-start}.toolbar,.workspace{padding-left:16px;padding-right:16px}}
+  </style>
+</head>
+<body>
+  <header><div><h1>Notas clínicas</h1><p>Fonte: <span id="source-file"></span> · <span id="total"></span> registos · linhas de origem preservadas</p></div><button id="export-notes">Exportar anotações</button></header>
+  <section class="toolbar" aria-label="Filtros">
+    <div class="search"><label for="search">Pesquisar no texto ou pelo número do registo</label><input id="search" type="search" placeholder="Ex.: chest pain, craniotomy, 934"></div>
+    <div><label for="specialty-filter">Especialidade</label><select id="specialty-filter"><option value="">Todas as especialidades</option></select></div>
+    <div><label for="problem-filter">Observações</label><select id="problem-filter"><option value="">Todos os registos</option><option value="any">Com observações</option><option value="repaired">Registos reparados</option><option value="partial">Texto parcial</option><option value="missing">Transcrição vazia</option><option value="conflict">Rótulos diferentes</option><option value="noted">Com anotação minha</option></select></div>
+  </section>
+  <main class="workspace">
+    <aside class="list-panel"><div class="list-head" id="count" aria-live="polite"></div><div id="cases"></div><button id="more" class="hidden">Mostrar mais registos</button></aside>
+    <article class="detail">
+      <div id="empty-detail" class="hidden">Nenhum registo corresponde aos filtros.</div>
+      <div id="record">
+        <div class="navigation"><span id="record-number"></span><div><button id="previous" aria-label="Registo anterior">Anterior</button><button id="next" aria-label="Registo seguinte">Seguinte</button></div></div>
+        <h2 id="sample-name"></h2><div class="specialty" id="specialty"></div>
+        <div id="observation" class="observation hidden"></div>
+        <section class="field"><h3>Descrição</h3><div id="description" class="text"></div></section>
+        <section class="field"><h3>Transcrição completa</h3><div id="transcription" class="text clinical"></div></section>
+        <section class="field"><h3>Palavras-chave</h3><div id="keywords" class="text"></div></section>
+        <section class="field"><label for="annotation">A minha anotação</label><textarea id="annotation" placeholder="Regista aqui observações ou uma correção a investigar."></textarea><p class="note-help" id="note-status">As anotações ficam neste browser e podem ser exportadas. Os dados originais mantêm-se.</p></section>
+      </div>
+    </article>
+  </main>
+  <script type="application/json" id="dataset">__DATA__</script>
+  <script>
+    'use strict';
+    const payload=JSON.parse(document.getElementById('dataset').textContent);
+    const rows=payload.records;
+    const byId=new Map(rows.map(row=>[row.id,row]));
+    const $=id=>document.getElementById(id);
+    const storageKey='ln-clinical-notes-'+payload.source_sha256;
+    let notes={};
+    let storageAvailable=true;
+    try{notes=JSON.parse(localStorage.getItem(storageKey)||'{}')}catch(error){storageAvailable=false}
+    let filtered=rows;
+    let current=rows[0].id;
+    let visible=100;
+    const searchable=new Map(rows.map(row=>[row.id,payload.columns.map(field=>row[field]).join(' ').toLocaleLowerCase()]));
+    $('total').textContent=rows.length.toLocaleString('pt-PT');
+    $('source-file').textContent=payload.source_file;
+    for(const specialty of payload.labels){const option=document.createElement('option');option.value=specialty;option.textContent=specialty;$('specialty-filter').append(option)}
+    function setText(id,value){const element=$(id);element.textContent=value.trim()||'Campo vazio';element.classList.toggle('empty',!value.trim())}
+    function readableClinical(value){return value.replace(/,\s*(?=[A-Z][A-Z /()\-]{2,70}(?:[:,]|$))/g,',\n\n').replace(/,\s*(?=\d{1,2}\.\s)/g,',\n')}
+    function renderList(){
+      const list=$('cases');list.replaceChildren();
+      $('count').textContent=filtered.length.toLocaleString('pt-PT')+' registos encontrados';
+      for(const row of filtered.slice(0,visible)){
+        const button=document.createElement('button');button.type='button';button.className='case'+(row.id===current?' active':'');button.setAttribute('aria-pressed',String(row.id===current));
+        const number=document.createElement('small');number.textContent='Registo '+row.id;
+        const name=document.createElement('strong');name.textContent=row.sample_name.trim()||'Sem nome do procedimento';
+        const specialty=document.createElement('span');specialty.textContent=payload.labels.includes(row.medical_specialty.trim())?row.medical_specialty.trim():'Fragmento sem especialidade';
+        button.append(number,name,specialty);button.addEventListener('click',()=>{current=row.id;render()});list.append(button);
+      }
+      $('more').classList.toggle('hidden',visible>=filtered.length);
+    }
+    function renderDetail(){
+      const row=byId.get(current);const index=filtered.findIndex(item=>item.id===current);const hasRow=Boolean(row)&&index>=0;
+      $('record').classList.toggle('hidden',!hasRow);$('empty-detail').classList.toggle('hidden',hasRow);
+      if(!hasRow)return;
+      const sourceLines=row.source_line_start===row.source_line_end?String(row.source_line_start):row.source_line_start+'–'+row.source_line_end;
+      $('record-number').textContent='Registo '+row.id+' · linha(s) '+sourceLines+' do CSV original · '+(index+1)+' de '+filtered.length;
+      $('sample-name').textContent=row.sample_name.trim()||'Sem nome do procedimento';
+      $('specialty').textContent=payload.labels.includes(row.medical_specialty.trim())?row.medical_specialty.trim():'Fragmento sem especialidade válida';
+      $('observation').textContent=row.observacao;$('observation').classList.toggle('hidden',!row.observacao);
+      setText('description',row.description);setText('transcription',row.transcription);setText('keywords',row.keywords);
+      if(row.transcription.trim())$('transcription').textContent=readableClinical(row.transcription);
+      if(!payload.labels.includes(row.medical_specialty.trim())){
+        $('transcription').textContent=readableClinical(row.medical_specialty);$('transcription').classList.remove('empty');
+      }
+      $('annotation').value=notes[String(row.id)]||'';
+      $('previous').disabled=index===0;$('next').disabled=index===filtered.length-1;
+      $('note-status').textContent=storageAvailable?'As anotações ficam neste browser e podem ser exportadas. Os dados originais mantêm-se.':'Este browser não permite guardar anotações entre sessões. Exporta-as antes de fechar.';
+    }
+    function render(){renderList();renderDetail()}
+    function applyFilters(){
+      const query=$('search').value.trim().toLocaleLowerCase();const specialty=$('specialty-filter').value;const problem=$('problem-filter').value;
+      filtered=rows.filter(row=>{
+        const label=row.medical_specialty.trim();
+        if(specialty&&label!==specialty)return false;
+        if(query&&!searchable.get(row.id).includes(query)&&String(row.id)!==query)return false;
+        if(problem==='any'&&!row.observacao)return false;
+        if(problem==='repaired'&&!row.is_repaired)return false;
+        if(problem==='partial'&&!row.is_partial)return false;
+        if(problem==='missing'&&(!payload.labels.includes(label)||row.transcription.trim()))return false;
+        if(problem==='conflict'&&!row.observacao.includes('Especialidades diferentes'))return false;
+        if(problem==='noted'&&!notes[String(row.id)])return false;
+        return true;
+      });
+      visible=100;current=filtered.length?filtered[0].id:null;render();
+    }
+    let searchTimer;
+    $('search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(applyFilters,150)});
+    $('specialty-filter').addEventListener('change',applyFilters);$('problem-filter').addEventListener('change',applyFilters);
+    $('more').addEventListener('click',()=>{visible+=100;renderList()});
+    function navigate(step){const index=filtered.findIndex(row=>row.id===current);const next=filtered[index+step];if(next){current=next.id;visible=Math.max(visible,index+step+1);render()}}
+    $('previous').addEventListener('click',()=>navigate(-1));$('next').addEventListener('click',()=>navigate(1));
+    $('annotation').addEventListener('input',()=>{
+      if(current===null)return;const value=$('annotation').value;if(value.trim())notes[String(current)]=value;else delete notes[String(current)];
+      try{localStorage.setItem(storageKey,JSON.stringify(notes));storageAvailable=true;$('note-status').textContent='Anotação guardada neste browser.'}catch(error){storageAvailable=false;$('note-status').textContent='Anotação guardada apenas nesta sessão. Exporta-a antes de fechar.'}
+    });
+    $('export-notes').addEventListener('click',()=>{
+      const quote=value=>'"'+String(value).replace(/"/g,'""')+'"';
+      const lines=[['registo','source_line_start','source_line_end','medical_specialty','sample_name','anotacao'].map(quote).join(';')];
+      for(const row of rows){if(notes[String(row.id)])lines.push([row.id,row.source_line_start,row.source_line_end,row.medical_specialty,row.sample_name,notes[String(row.id)]].map(quote).join(';'))}
+      const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='anotacoes_dataset.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    });
+    render();
+  </script>
+</body>
+</html>

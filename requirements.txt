@@ -1,0 +1,9 @@
+jupyterlab>=4.0,<5
+ipykernel>=6.29,<8
+nbclient>=0.10,<1
+pandas>=2.2,<4
+scikit-learn>=1.7,<2
+matplotlib>=3.9,<4
+numpy>=2,<3
+joblib>=1.4,<2
+nltk>=3.9,<4
