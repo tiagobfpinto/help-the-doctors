@@ -2,7 +2,7 @@ Neurology
 Cardiovascular-Pulmonary
 Orthopedic
 Radiology
-Surgery
+Neurosurgery
 Neurology
 Cardiovascular-Pulmonary
 Surgery
@@ -66,179 +66,179 @@ Ophthalmology
 Orthopedic
 Surgery
 Cardiovascular-Pulmonary
+Surgery
+Cardiovascular-Pulmonary
+General Medicine
+Orthopedic
+General Medicine
+Cardiovascular-Pulmonary
+Surgery
+Neurology
+Surgery
+Surgery
+Neurology
+Neurology
+Surgery
+Cardiovascular-Pulmonary
+Orthopedic
+Surgery
+Obstetrics-Gynecology
+Radiology
+Surgery
+Neurology
+Cardiovascular-Pulmonary
+Cardiovascular-Pulmonary
+Neurosurgery
+Radiology
+Obstetrics-Gynecology
+Radiology
+Surgery
+Surgery
+Obstetrics-Gynecology
+Psychiatry-Psychology
+General Medicine
+Surgery
+Cardiovascular-Pulmonary
+Surgery
+Cardiovascular-Pulmonary
+Surgery
+Cardiovascular-Pulmonary
+Surgery
+Neurosurgery
+Neurology
+Neurology
+Orthopedic
+General Medicine
+Surgery
+Surgery
+Surgery
+Radiology
+General Medicine
+Radiology
+Surgery
+General Medicine
+Neurosurgery
+General Medicine
+Psychiatry-Psychology
+Radiology
+Neurosurgery
+Surgery
+General Medicine
+Cardiovascular-Pulmonary
+Psychiatry-Psychology
+Radiology
+Surgery
+Surgery
+Orthopedic
+Surgery
+Surgery
+Surgery
+Surgery
+Cardiovascular-Pulmonary
+Surgery
+General Medicine
+Surgery
+Obstetrics-Gynecology
+Ophthalmology
+Gastroenterology
+Radiology
+General Medicine
+General Medicine
+Cardiovascular-Pulmonary
+Radiology
+Radiology
+Radiology
+Radiology
+Psychiatry-Psychology
+Surgery
+Psychiatry-Psychology
+Cardiovascular-Pulmonary
+Gastroenterology
+Surgery
+Radiology
+Neurosurgery
+Surgery
+Surgery
+Surgery
+Surgery
+Neurosurgery
+General Medicine
+Neurology
+Gastroenterology
+Surgery
+Orthopedic
+Ophthalmology
+Neurosurgery
+Psychiatry-Psychology
+Psychiatry-Psychology
+General Medicine
+Orthopedic
+General Medicine
+Surgery
+Surgery
+General Medicine
+Surgery
+Surgery
+Obstetrics-Gynecology
+Orthopedic
+General Medicine
+Surgery
+Radiology
+General Medicine
+Surgery
+Surgery
+Surgery
+General Medicine
+Cardiovascular-Pulmonary
+Cardiovascular-Pulmonary
+Surgery
+Radiology
+Surgery
+Cardiovascular-Pulmonary
+Surgery
+Surgery
+Surgery
+Orthopedic
+Cardiovascular-Pulmonary
+Surgery
+Cardiovascular-Pulmonary
+Radiology
+Surgery
+Gastroenterology
+Surgery
+Neurology
+Surgery
+Radiology
+Neurology
+Gastroenterology
+Orthopedic
+Gastroenterology
+Cardiovascular-Pulmonary
+Orthopedic
+Surgery
+Surgery
+Gastroenterology
+Cardiovascular-Pulmonary
+Neurology
+Surgery
+Cardiovascular-Pulmonary
+Radiology
+Ophthalmology
+Cardiovascular-Pulmonary
+Surgery
+Gastroenterology
+Surgery
+Cardiovascular-Pulmonary
+Surgery
+Surgery
+Surgery
+Radiology
+General Medicine
+Surgery
+Surgery
+Neurology
 Surgery
 Dermatology
-General Medicine
-Surgery
-General Medicine
-Cardiovascular-Pulmonary
-Surgery
-Neurology
-Surgery
-Surgery
-Neurology
-Neurology
-Surgery
-Cardiovascular-Pulmonary
-Orthopedic
-Surgery
-Obstetrics-Gynecology
-Radiology
-Surgery
-Neurology
-Cardiovascular-Pulmonary
-Cardiovascular-Pulmonary
-Neurosurgery
-Radiology
-Obstetrics-Gynecology
-Radiology
-Surgery
-Surgery
-Obstetrics-Gynecology
-Psychiatry-Psychology
-General Medicine
-Surgery
-Cardiovascular-Pulmonary
-Surgery
-Cardiovascular-Pulmonary
-Surgery
-Cardiovascular-Pulmonary
-Surgery
-Surgery
-Neurology
-Neurology
-Orthopedic
-Surgery
-Surgery
-Surgery
-Surgery
-Radiology
-General Medicine
-Radiology
-Surgery
-General Medicine
-Neurosurgery
-General Medicine
-Psychiatry-Psychology
-Radiology
-Neurosurgery
-Surgery
-General Medicine
-Cardiovascular-Pulmonary
-Psychiatry-Psychology
-Radiology
-Surgery
-Surgery
-Orthopedic
-Surgery
-Surgery
-Surgery
-Surgery
-Cardiovascular-Pulmonary
-Surgery
-General Medicine
-Surgery
-Obstetrics-Gynecology
-Ophthalmology
-Gastroenterology
-Radiology
-General Medicine
-General Medicine
-Cardiovascular-Pulmonary
-Radiology
-Radiology
-Radiology
-Radiology
-Psychiatry-Psychology
-Surgery
-Psychiatry-Psychology
-Cardiovascular-Pulmonary
-Gastroenterology
-Surgery
-Radiology
-Neurosurgery
-Surgery
-Surgery
-Surgery
-Surgery
-Surgery
-General Medicine
-Neurology
-Gastroenterology
-Surgery
-Orthopedic
-Ophthalmology
-Surgery
-Psychiatry-Psychology
-Psychiatry-Psychology
-General Medicine
-Orthopedic
-General Medicine
-Surgery
-Surgery
-General Medicine
-Surgery
-Surgery
-Obstetrics-Gynecology
-Orthopedic
-General Medicine
-Surgery
-Radiology
-General Medicine
-Surgery
-Surgery
-Surgery
-General Medicine
-Cardiovascular-Pulmonary
-Cardiovascular-Pulmonary
-Surgery
-Radiology
-Surgery
-Cardiovascular-Pulmonary
-Surgery
-Surgery
-Surgery
-Orthopedic
-Cardiovascular-Pulmonary
-Surgery
-Cardiovascular-Pulmonary
-Radiology
-Surgery
-Gastroenterology
-Surgery
-Neurology
-Surgery
-Radiology
-Neurology
-Gastroenterology
-Orthopedic
-Gastroenterology
-Cardiovascular-Pulmonary
-Orthopedic
-Surgery
-Surgery
-Gastroenterology
-Cardiovascular-Pulmonary
-Neurology
-Surgery
-Cardiovascular-Pulmonary
-Radiology
-Ophthalmology
-Cardiovascular-Pulmonary
-Surgery
-Gastroenterology
-Surgery
-Cardiovascular-Pulmonary
-Surgery
-Surgery
-Surgery
-Radiology
-General Medicine
-Surgery
-Surgery
-Neurology
-Surgery
-Dermatology
 Gastroenterology
 Gastroenterology
 Orthopedic
@@ -340,31 +340,31 @@ Psychiatry-Psychology
 Gastroenterology
 Surgery
 Surgery
-Psychiatry-Psychology
+General Medicine
 Radiology
 Neurosurgery
 Neurology
-Radiology
-Dermatology
-General Medicine
-Psychiatry-Psychology
-Orthopedic
-Radiology
-Neurosurgery
-Cardiovascular-Pulmonary
-Neurosurgery
-Obstetrics-Gynecology
-Surgery
-Surgery
 Radiology
 Dermatology
 General Medicine
+Psychiatry-Psychology
+Orthopedic
+Radiology
+Neurosurgery
+Cardiovascular-Pulmonary
+Neurosurgery
+Obstetrics-Gynecology
+Surgery
+Surgery
+Radiology
+Dermatology
+General Medicine
 General Medicine
 Surgery
 Orthopedic
 Surgery
-Neurology
-Surgery
+Orthopedic
+Neurosurgery
 General Medicine
 Surgery
 Cardiovascular-Pulmonary

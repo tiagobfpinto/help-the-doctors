@@ -1,39 +1,175 @@
 {
-  "candidate_id": "SVC+EXCL",
-  "model_id": "SVC",
-  "model": "LinearSVC",
+  "candidate_id": "SVC_AUG+EXCL",
+  "model_id": "SVC_AUG",
   "decoder": "exclude_seen",
+  "model": "LinearSVC",
   "protocol": "stratified_rows_development",
   "development_metrics": {
-    "accuracy": 0.775571375046834,
-    "f1_macro": 0.7526449625704905,
-    "min_f1": 0.4814814814814814
+    "accuracy": 0.7740726863994005,
+    "f1_macro": 0.7545189858436855,
+    "min_f1": 0.5416666666666666,
+    "f1_dermatology": 0.5416666666666666
   },
   "grouped_protocol": "grouped_development",
   "grouped_metrics": {
-    "accuracy": 0.5710003746721618,
-    "f1_macro": 0.6027938688789084,
-    "min_f1": 0.435132957292506
+    "accuracy": 0.5687523417010116,
+    "f1_macro": 0.6092224747189435,
+    "min_f1": 0.4272801972062449,
+    "f1_dermatology": 0.5925925925925926
   },
   "meets_development_thresholds": true,
-  "schema_version": 2,
-  "selection_rule": "Use only seed-0 five-fold stratified-row development metrics. Among all fourteen classifier/decoder candidates with minimum per-class F1 >= 0.25, maximize accuracy, then macro F1, then minimum F1, then alphabetical candidate ID. If none satisfy the F1 constraint, maximize macro F1, then accuracy and minimum F1. Report the same candidate's grouped metrics; never select the larger score across protocols.",
+  "promotion_applied": true,
+  "incumbent": "SVC+EXCL",
+  "selection_policy": {
+    "version": 1,
+    "primary_protocol": "stratified_rows_development",
+    "robustness_protocol": "grouped_development",
+    "seed": 0,
+    "n_folds": 5,
+    "LR_C": 0.25,
+    "model_ids": [
+      "NB",
+      "B",
+      "D",
+      "E",
+      "SVC",
+      "SVC_AUG",
+      "SVC_COPY"
+    ],
+    "decoders": [
+      "raw",
+      "exclude_seen"
+    ],
+    "incumbent": "SVC+EXCL",
+    "eligible_for_promotion": [
+      "D+EXCL",
+      "SVC_AUG+EXCL"
+    ],
+    "family_baselines": {
+      "D+EXCL": "B+EXCL",
+      "SVC_AUG+EXCL": "SVC+EXCL"
+    },
+    "copy_controls": {
+      "D+EXCL": "E+EXCL",
+      "SVC_AUG+EXCL": "SVC_COPY+EXCL"
+    },
+    "strict_improvement_epsilon": 1e-12,
+    "required_improvements": [
+      "f1_macro",
+      "f1_dermatology"
+    ],
+    "maximum_accuracy_drop": 0.01,
+    "absolute_accuracy_strictly_greater_than": 0.49,
+    "absolute_minimum_class_f1": 0.25,
+    "must_pass_against": [
+      "own_family_original",
+      "incumbent"
+    ],
+    "passing_candidates_order": [
+      "f1_macro_desc",
+      "f1_dermatology_desc",
+      "accuracy_desc",
+      "candidate_id_asc"
+    ],
+    "if_none_pass": "SVC+EXCL",
+    "copy_control_role": "diagnostic only; never eligible for promotion",
+    "grouped_role": "separate robustness scenario; never used for promotion",
+    "evaluation_status": "Fixed before the new run after prior development studies; exploratory, not independent test evaluation."
+  },
+  "selection_rule": "Only D+EXCL and SVC_AUG+EXCL may replace SVC+EXCL. In seed-0 five-fold stratified-row development, each must improve both macro F1 and Dermatology F1 by more than 1e-12, with accuracy loss at most 0.01, against its own unaugmented family and against SVC+EXCL. Accuracy must exceed 0.49 and all class F1 scores must be at least 0.25. Rank passing candidates by macro F1, Dermatology F1, accuracy, then alphabetical ID. Otherwise retain SVC+EXCL. Matched copies and grouped evaluation are diagnostics, never promotion gates.",
+  "promotion_diagnostics": [
+    {
+      "candidate_id": "D+EXCL",
+      "family_baseline": "B+EXCL",
+      "incumbent": "SVC+EXCL",
+      "copy_control": "E+EXCL",
+      "protocol": "stratified_rows_development",
+      "accuracy": 0.7366054702135632,
+      "f1_macro": 0.7013139930986236,
+      "min_f1": 0.4,
+      "f1_dermatology": 0.4,
+      "family_macro_improved": false,
+      "family_dermatology_improved": false,
+      "family_accuracy_within_drop": false,
+      "incumbent_macro_improved": false,
+      "incumbent_dermatology_improved": false,
+      "incumbent_accuracy_within_drop": false,
+      "absolute_accuracy_pass": true,
+      "absolute_min_f1_pass": true,
+      "family_delta_accuracy": -0.029599100786811494,
+      "family_delta_f1_macro": -0.03135791950409317,
+      "family_delta_f1_dermatology": -0.07761194029850738,
+      "incumbent_delta_accuracy": -0.03896590483327089,
+      "incumbent_delta_f1_macro": -0.05133096947186688,
+      "incumbent_delta_f1_dermatology": -0.08148148148148138,
+      "copy_delta_accuracy": 0.004121393780442184,
+      "copy_delta_f1_macro": 0.0032044438816253296,
+      "copy_delta_f1_dermatology": 0.005633802816901512,
+      "promotion_pass": false,
+      "failed_checks": "family_macro_improved,family_dermatology_improved,family_accuracy_within_drop,incumbent_macro_improved,incumbent_dermatology_improved,incumbent_accuracy_within_drop"
+    },
+    {
+      "candidate_id": "SVC_AUG+EXCL",
+      "family_baseline": "SVC+EXCL",
+      "incumbent": "SVC+EXCL",
+      "copy_control": "SVC_COPY+EXCL",
+      "protocol": "stratified_rows_development",
+      "accuracy": 0.7740726863994005,
+      "f1_macro": 0.7545189858436855,
+      "min_f1": 0.5416666666666666,
+      "f1_dermatology": 0.5416666666666666,
+      "family_macro_improved": true,
+      "family_dermatology_improved": true,
+      "family_accuracy_within_drop": true,
+      "incumbent_macro_improved": true,
+      "incumbent_dermatology_improved": true,
+      "incumbent_accuracy_within_drop": true,
+      "absolute_accuracy_pass": true,
+      "absolute_min_f1_pass": true,
+      "family_delta_accuracy": -0.0014986886474335215,
+      "family_delta_f1_macro": 0.001874023273194969,
+      "family_delta_f1_dermatology": 0.06018518518518523,
+      "incumbent_delta_accuracy": -0.0014986886474335215,
+      "incumbent_delta_f1_macro": 0.001874023273194969,
+      "incumbent_delta_f1_dermatology": 0.06018518518518523,
+      "copy_delta_accuracy": -0.00037467216185838037,
+      "copy_delta_f1_macro": 2.2401592698617634e-05,
+      "copy_delta_f1_dermatology": 0.0,
+      "promotion_pass": true,
+      "failed_checks": ""
+    }
+  ],
+  "schema_version": 3,
   "evaluation_status": "Exploratory development selection after corpus/annotation inspection and external methodological review; neither row nor grouped CV is an independent post-selection test evaluation. Exclusion assumes that an identical input's next annotation tends to use a previously unseen label.",
   "train_sha256": "028a886eca5f26ff61d9cf59ed087efd91d2689e879eac844be44b222f582dc1",
-  "experiment_directory": "outputs/avaliacao_final",
-  "summary_sha256": "91dad5ba8837a19eaede8d5694b3e45726ba4edba436f5704b408e5d77ca319d",
-  "experiment_sha256": "685b9f81044a2b9ba64d53af253975973955b5caf8445660b25e54436e72fd0f",
+  "experiment_directory": "outputs/avaliacao_recombinacao",
+  "summary_sha256": "957a3259d0cdc3bc0c453bc80c8a65137daf822da35de2cf0186a5201e01e781",
+  "experiment_sha256": "83e4fbb6fc23f5b56a1b7236705021bed80b18be8cdcaf72f8193aeae73418f3",
   "implementation_sha256": {
-    "augmentation.py": "45fb17af47d55210288cdd0ed3ddf47fce31d635d300cf64349e7e75d468c821",
+    "augmentation.py": "1ed9b9c6593704168c06091ae9d444ba7acb4115b2eeae4b4045de31961fc5f5",
     "models.py": "ae70890aa3b86092bef4969e01cdf15d6d8f891d0d4ce58e0d895085cbf60137",
     "data_preparation.py": "ca3b8f6b908cb0fa0f3b08e4a7a60ae719c2ccacbdb74807d2d91138cf73024f",
-    "duplicate_exclusion.py": "7defe047fa48ff4de32c69c34c8bfcf6f2890da91e10606dbba1f2c61898589d"
+    "duplicate_exclusion.py": "7defe047fa48ff4de32c69c34c8bfcf6f2890da91e10606dbba1f2c61898589d",
+    "augmentation_policy.py": "da7456e4bdbc53fed338099264943380475ca2ab76528db1a32863e88f6462cd"
   },
   "inference_implementation_sha256": {
-    "classify.py": "9923d55ad97a907d8009554d3febf5f4a8caf4710f4631764871eba547c16c2f",
+    "classify.py": "f26184b71c39c3d972c14503b30845b37a31448d6756501cff99e766465cd5ff",
     "read_test_set.py": "f47639089fc4df674b425a677da5d66394ac96eba03b6c9085d7e8431880d4cd",
-    "config.py": "dd0bd68d5c6685371f53f41f9d7db2fecf19936be33bdefeedeaab9b0fa55429"
+    "config.py": "bff5a4fed574c162dad617449c6c16ff06388e409ffb074c1906213c328773d5"
   },
+  "release_files_sha256": {
+    "augmentation.py": "1ed9b9c6593704168c06091ae9d444ba7acb4115b2eeae4b4045de31961fc5f5",
+    "models.py": "ae70890aa3b86092bef4969e01cdf15d6d8f891d0d4ce58e0d895085cbf60137",
+    "data_preparation.py": "ca3b8f6b908cb0fa0f3b08e4a7a60ae719c2ccacbdb74807d2d91138cf73024f",
+    "duplicate_exclusion.py": "7defe047fa48ff4de32c69c34c8bfcf6f2890da91e10606dbba1f2c61898589d",
+    "augmentation_policy.py": "da7456e4bdbc53fed338099264943380475ca2ab76528db1a32863e88f6462cd",
+    "classify.py": "f26184b71c39c3d972c14503b30845b37a31448d6756501cff99e766465cd5ff",
+    "read_test_set.py": "f47639089fc4df674b425a677da5d66394ac96eba03b6c9085d7e8431880d4cd",
+    "config.py": "bff5a4fed574c162dad617449c6c16ff06388e409ffb074c1906213c328773d5",
+    "augmentation_decision_plan.json": "42df6a12a9edcccf4ca55f4e8a03a1fbffa7d754361c6c2777fe6513a879fac3"
+  },
+  "decision_plan_sha256": "42df6a12a9edcccf4ca55f4e8a03a1fbffa7d754361c6c2777fe6513a879fac3",
+  "release_requirements": "Normal inference requires train.csv, official inputs, this selection, and the declared code/plan files; development artifacts are needed only for --select.",
   "LR_C": 0.25,
   "seed": 0,
   "n_folds": 5
