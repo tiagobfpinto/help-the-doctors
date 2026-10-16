@@ -23,8 +23,13 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from augmentation import (
-    ARTICLE_RATE, AUGMENTED_CLASSES, CONDITIONS, LABEL, LR_C, MAX_ITER, TEXT_FIELDS,
+    AUGMENTATION_NAME, AUGMENTED_CLASSES, EVALUATED_MODEL_IDS, LABEL, LR_C,
+    MAX_ITER, MIN_SECTION_WORDS, MIN_RECOGNIZED_SECTION_TYPES, SECTION_HEADINGS, TEXT_FIELDS,
     clean_inputs, fit_evaluated_model, identity_groups, prediction_input,
+)
+from augmentation_policy import (
+    MODEL_IDS, MODEL_NAMES, PROTOCOLS, DECODERS, SOURCE_FILES, PLAN_FILENAME,
+    POLICY_SPEC, SELECTION_RULE, choose_candidate, validate_decision_plan,
 )
 from config import FINAL_EVALUATION_DIR
 from data_preparation import repair_training_csv, sha256
@@ -32,12 +37,10 @@ from duplicate_exclusion import exact_input_keys, fit_exclusion_index, score_mod
 
 ROOT = Path(__file__).resolve().parent
 OUT = FINAL_EVALUATION_DIR
-MODEL_IDS = (*CONDITIONS, "NB", "SVC")
-PROTOCOLS = ("stratified_rows_development", "grouped_development")
-DECODERS = ("raw", "exclude_seen")
 SEED = 0
 N_FOLDS = 5
 GENERATED: set[Path] = set()
+ACTIVE_RUN = False
 
 
 def candidate_id(model_id, decoder):
@@ -85,63 +88,20 @@ def transition_counts(frame):
     }
 
 
-def reuse_stability_scores(train, classes):
-    """Diagnostic reuse of previous seeds 1/2; no new fits or primary selection."""
-    old_dir = ROOT / "outputs" / "auditoria_exclusao"
-    files = [old_dir / "oof_predictions.csv", old_dir / "pair_key_oof_predictions.csv", old_dir / "experiment.json"]
-    if not all(path.exists() for path in files):
-        return {"state": "not_available", "reason": "previous audit score artifacts absent"}
-    provenance = json.loads(files[2].read_text(encoding="utf-8"))
-    if provenance["sources_sha256"]["train.csv"] != sha256(ROOT / "train.csv"):
-        raise ValueError("Previous stability scores use a different training dataset.")
-    for name in ("augmentation.py", "models.py", "data_preparation.py"):
-        if provenance["sources_sha256"][name] != sha256(ROOT / name):
-            raise ValueError(f"Previous score configuration changed: {name}")
-    previous = pd.read_csv(files[0], sep=";")
-    pair_previous = pd.read_csv(files[1], sep=";")
-    pair_previous = pair_previous.set_index(["protocol", "seed", "model_id", "record_id"])
-    rows, detail_frames = [], []
-    for seed in (1, 2):
-        current = previous.loc[previous.protocol.eq("stratified") & previous.seed.eq(seed)]
-        for model_id, model_rows in current.groupby("model_id", sort=True):
-            pieces = []
-            for fold, validation in model_rows.groupby("fold", sort=True):
-                validation = validation.reset_index(drop=True)
-                ids = validation.record_id.tolist()
-                training = train.loc[~train.record_id.isin(ids)]
-                val = train.set_index("record_id").loc[ids].reset_index()
-                scores = validation[[f"score::{label}" for label in classes]].to_numpy()
-                result = fit_exclusion_index(training).predict(scores, classes, val)
-                assert np.array_equal(result.raw_predictions, validation.raw_prediction)
-                expected = pair_previous.loc[[ ("stratified", seed, model_id, rid) for rid in ids ], "rule_prediction"].to_numpy()
-                assert np.array_equal(result.predictions, expected)
-                for decoder, prediction in [("raw", result.raw_predictions), ("exclude_seen", result.predictions)]:
-                    pieces.append(pd.DataFrame({
-                        "seed": seed, "fold": int(fold), "model_id": model_id, "decoder": decoder,
-                        "candidate_id": candidate_id(model_id, decoder), "record_id": ids,
-                        "true_class": validation.true_class.to_numpy(), "predicted_class": prediction,
-                    }))
-            joined = pd.concat(pieces, ignore_index=True)
-            detail_frames.append(joined)
-            for decoder, selected in joined.groupby("decoder", sort=False):
-                values, _ = metrics(selected.true_class, selected.predicted_class, classes)
-                rows.append({"protocol": "stratified_rows_development", "seed": seed, "model_id": model_id,
-                             "candidate_id": candidate_id(model_id, decoder), "decoder": decoder,
-                             "status": "diagnostic reuse of previous OOF scores; not primary selection", **values})
-    write_csv(pd.DataFrame(rows), OUT / "stability_diagnostics.csv")
-    write_csv(pd.concat(detail_frames, ignore_index=True), OUT / "stability_diagnostic_predictions.csv")
-    return {
-        "state": "complete", "seeds": [1, 2], "additional_model_fits": 0,
-        "raw_predictions_identical": True, "pair_key_predictions_identical": True,
-        "sources_sha256": {path.name: sha256(path) for path in files},
-    }
-
 
 def run():
+    global ACTIVE_RUN
+    plan = validate_decision_plan(ROOT / PLAN_FILENAME, ROOT)
+    if tuple(EVALUATED_MODEL_IDS) != MODEL_IDS:
+        raise ValueError("Augmentation model IDs differ from the frozen promotion policy.")
+    GENERATED.clear()
+    if (OUT / "experiment.json").exists() or (OUT / "run_state.json").exists():
+        raise FileExistsError("Preserve the existing run; use a new output directory rather than overwriting it.")
+    ACTIVE_RUN = True
     OUT.mkdir(parents=True, exist_ok=True)
     start_time = time.perf_counter()
     start_utc = datetime.now(timezone.utc).isoformat()
-    source_names = ("train.csv", "augmentation.py", "models.py", "data_preparation.py", "duplicate_exclusion.py", "run_final_evaluation.py", "config.py")
+    source_names = (*SOURCE_FILES, PLAN_FILENAME)
     hashes = {name: sha256(ROOT / name) for name in source_names}
     records, _ = repair_training_csv(ROOT / "train.csv")
     train = pd.DataFrame(records).reset_index(drop=True)
@@ -160,11 +120,18 @@ def run():
         "models": {"LR": {"C": LR_C, "max_iter": MAX_ITER, "loss": "multinomial", "penalty": "L2"},
                    "SVC": {"C": LR_C, "max_iter": MAX_ITER, "loss": "squared_hinge", "multiclass": "ovr"},
                    "NB": {"fields": ["description"], "Porter_stemming": True, "alpha": 1.0, "fit_prior": True}},
-        "augmentation": {"classes": list(AUGMENTED_CLASSES), "field": "transcription", "article": "the",
-                         "article_rate": ARTICLE_RATE, "rule": "max(1,floor(.20*m)) isolated article occurrences", "variants": 1},
-        "conditions": {"A": "unweighted, no augmentation", "B": "balanced, no augmentation", "C": "unweighted article dropout",
-                       "D": "balanced article dropout", "E": "balanced matched copies", "NB": "specified description baseline", "SVC": "balanced, no augmentation"},
-        "weights": "balanced counts estimated on original fold training rows, then total sample-weight mass normalized to N_original; D/E match source IDs, counts and weights",
+        "augmentation": {"name": AUGMENTATION_NAME, "classes": list(AUGMENTED_CLASSES), "field": "transcription",
+                         "rule": "replace one matched-heading section body using another original same-class training note from a different identity group",
+                         "minimum_section_words": MIN_SECTION_WORDS,
+                         "minimum_recognized_section_types": MIN_RECOGNIZED_SECTION_TYPES,
+                         "allowed_headings": list(SECTION_HEADINGS), "variants_per_accepted_parent": 1,
+                         "ambiguous_sections": "skip repeated heading types and bodies with unresolved uppercase headings in either source",
+                         "same_patient_semantics_claimed": False},
+        "conditions": {"B": "LR balanced, no augmentation", "D": "LR balanced section recombination",
+                       "E": "LR balanced matched copies", "NB": "specified description baseline",
+                       "SVC": "SVC balanced, no augmentation", "SVC_AUG": "SVC balanced section recombination",
+                       "SVC_COPY": "SVC balanced matched copies"},
+        "weights": "balanced counts estimated on original fold training rows, then total sample-weight mass normalized to N_original; D/E/SVC_AUG/SVC_COPY match parents, counts and weights",
         "decoder": {"key": "normalized lowercase (sample_name,transcription), skip only both-empty",
                     "index_scope": "only original rows of the training fold, never augmented descendants or validation targets",
                     "operation": "exclude all observed classes; next-highest score; raw fallback for no match or all excluded",
@@ -172,16 +139,18 @@ def run():
                     "premise": "Exact input copies tend to have distinct categories in this corpus; a dataset-construction artifact, not a clinical law.",
                     "post_hoc": True},
         "group_rule": "original identity_groups: normalized nonempty transcription, title fallback, individual groups for wholly empty inputs",
-        "selection": "primary row protocol only; among min F1>=.25 maximize accuracy, macro F1, min F1, then candidate ID; otherwise macro F1, accuracy, min F1",
+        "selection": SELECTION_RULE, "selection_policy": POLICY_SPEC,
+        "decision_plan": plan, "decision_plan_sha256": hashes[PLAN_FILENAME],
         "limitations": ["Field, parameter, augmentation and decoder choices used this labelled corpus.",
                         "Raw, decoded, row and grouped outcomes answer different evaluation conditions.",
                         "No test labels are available; no official-test performance is measured.",
                         "A single conservative augmentation and fixed family settings do not rank all methods."],
     }
     save_json(OUT / "design.json", design)
+    save_json(OUT / PLAN_FILENAME, plan)
     save_json(OUT / "run_state.json", {"state": "running", "started_utc": start_utc}, artifact=False)
     summaries, per_class, fold_metrics, predictions, weight_metadata, audit_frames, augmentation_examples, decoder_diagnostics, warning_log = [], [], [], [], [], [], [], [], []
-    all_wide = []
+    all_wide, all_assignments = [], []
     print("Design saved before fits. Primary=stratified_rows_development; grouped is robustness only.", flush=True)
     for protocol in PROTOCOLS:
         splitter = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED) if protocol == PROTOCOLS[0] else StratifiedGroupKFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED)
@@ -196,6 +165,7 @@ def run():
             training, validation = train.iloc[tr].reset_index(drop=True), train.iloc[va].reset_index(drop=True)
             assert set(training[LABEL]) == set(classes)
             lookup = fit_exclusion_index(training)
+            matched_batches = {}
             for model_id in MODEL_IDS:
                 fitted_at = time.perf_counter()
                 with warnings.catch_warnings(record=True) as caught:
@@ -210,15 +180,23 @@ def run():
                     assert not decoded.diagnostics.changed.any()
                     assert not decoded.diagnostics.has_train_match.any()
                 weight_metadata.append({"protocol": protocol, "fold": fold, "model_id": model_id, **batch.metadata})
+                if model_id in {"D", "E", "SVC_AUG", "SVC_COPY"}:
+                    fingerprint = (batch.children.parent_record_id.tolist(), batch.y.tolist(), batch.sample_weight.tolist())
+                    matched_batches[model_id] = fingerprint
+                    if model_id != "D":
+                        assert fingerprint == matched_batches["D"], "Copy/augmentation budgets or weights differ."
                 if model_id == "D":
                     audit = batch.audit.copy()
                     audit.insert(0, "protocol", protocol)
                     assert set(batch.children.parent_record_id) <= set(training.record_id)
                     assert set(batch.children.parent_record_id).isdisjoint(validation.record_id)
+                    assert set(batch.children.donor_record_id) <= set(training.record_id)
+                    assert set(batch.children.donor_record_id).isdisjoint(validation.record_id)
                     audit_frames.append(audit)
                     for _, child in batch.children.groupby(LABEL, sort=True).head(2).iterrows():
                         parent = training.set_index("record_id").loc[child.parent_record_id]
                         augmentation_examples.append({"protocol": protocol, "fold": fold, "parent_record_id": child.parent_record_id,
+                                                      "donor_record_id": child.donor_record_id, "section_type": child.section_type,
                                                       "class": child[LABEL], "sample_name": parent.sample_name,
                                                       "original_transcription": parent.transcription,
                                                       "augmented_transcription": child.transcription})
@@ -256,11 +234,13 @@ def run():
         wide.insert(0, "protocol", protocol)
         wide.insert(1, "seed", SEED)
         wide["fold"], wide["group_id"] = assignments, groups
+        all_assignments.append(wide.drop(columns="true_class").copy())
+        write_csv(pd.concat(all_assignments, ignore_index=True), OUT / "fold_assignments.csv")
         protocol_dir = OUT / protocol
         for cid, frame in combined.groupby("candidate_id", sort=False):
             assert len(frame) == len(train) and frame.record_id.nunique() == len(train)
             mid, decoder = frame.model_id.iloc[0], frame.decoder.iloc[0]
-            family = "MultinomialNB" if mid == "NB" else "LinearSVC" if mid == "SVC" else "LogisticRegression"
+            family = MODEL_NAMES[mid]
             values, report = metrics(frame.true_class, frame.predicted_class, classes)
             summaries.append({"candidate_id": cid, "model_id": mid, "decoder": decoder, "model": family,
                               "protocol": protocol, "seed": SEED, **values})
@@ -294,7 +274,9 @@ def run():
     write_csv(pd.DataFrame(augmentation_examples), OUT / "augmentation_examples.csv")
     save_json(OUT / "weights_per_fold.json", weight_metadata)
     write_csv(pd.DataFrame(warning_log, columns=["protocol", "fold", "model_id", "warning"]), OUT / "warnings.csv")
-    stability = reuse_stability_scores(train, classes)
+    selection = choose_candidate(pd.DataFrame(summaries), pd.DataFrame(per_class))
+    write_csv(pd.DataFrame(selection["promotion_diagnostics"]), OUT / "gate_diagnostics.csv")
+    save_json(OUT / "promotion_decision.json", selection)
     changed_sources = {name: {"start": hashes[name], "now": sha256(ROOT / name)} for name in source_names if sha256(ROOT / name) != hashes[name]}
     if changed_sources:
         save_json(OUT / "run_state.json", {"state": "failed", "reason": "source hashes changed during evaluation", "changed_sources": changed_sources}, artifact=False)
@@ -304,7 +286,9 @@ def run():
         **design, "state": "complete", "started_utc": start_utc, "completed_utc": datetime.now(timezone.utc).isoformat(),
         "elapsed_seconds": time.perf_counter() - start_time,
         "versions": {"python": sys.version.split()[0], **{p: metadata.version(p) for p in ("numpy", "pandas", "scikit-learn", "nltk", "threadpoolctl")}},
-        "artifacts_sha256": artifacts, "stability_diagnostics": stability, "warnings": warning_log,
+        "artifacts_sha256": artifacts, "warnings": warning_log,
+        "promotion_decision": selection,
+        "stability_diagnostics": {"state": "not_reused", "reason": "augmentation source changed; old studies remain archived"},
         "sources_unchanged_at_completion": True,
         "grouped_decoder_inactive": True, "metrics_source": "pooled OOF predictions of all original cases",
     }
@@ -317,5 +301,6 @@ if __name__ == "__main__":
     try:
         run()
     except Exception as error:
-        save_json(OUT / "run_state.json", {"state": "failed", "error": str(error)}, artifact=False)
+        if ACTIVE_RUN:
+            save_json(OUT / "run_state.json", {"state": "failed", "error": str(error)}, artifact=False)
         raise

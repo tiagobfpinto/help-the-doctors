@@ -58,6 +58,7 @@ def fixture(root):
                     })
                     matrix[i, labels.index(pred)] += 1
                 metrics, per_class = assets._matrix_metrics(matrix, labels)
+                metrics["f1_dermatology"] = next(r["f1"] for r in per_class if r["class"] == "Dermatology")
                 summaries.append({
                     "protocol": protocol, "seed": 0, "candidate_id": candidate, "model_id": model,
                     "decoder": decoder, "model": model, **metrics,
@@ -73,14 +74,19 @@ def fixture(root):
     write_csv(experiment / "summary.csv", summaries)
     write_csv(experiment / "metrics_per_class.csv", class_rows)
     write_csv(experiment / "oof_predictions.csv", oof)
+    write_csv(experiment / "gate_diagnostics.csv", [
+        {"candidate_id": candidate, "eligible": False, "reason": "synthetic fixture"}
+        for candidate in ("D+EXCL", "SVC_AUG+EXCL")
+    ])
     manifest = {p.relative_to(experiment).as_posix(): assets._sha256(p) for p in experiment.rglob("*.csv")}
     (experiment / "experiment.json").write_text(json.dumps({"state": "complete", "source_sha256": assets._sha256(train),
                                                             "artifacts_sha256": manifest}), encoding="utf-8")
     chosen = next(r for r in summaries if r["candidate_id"] == "SVC+EXCL" and r["protocol"] == assets.ROW_PROTOCOL)
     selection = root / "selection.json"
     selection.write_text(json.dumps({
-        "schema_version": 2, "candidate_id": "SVC+EXCL", "model_id": "SVC", "decoder": "exclude_seen",
-        "protocol": assets.ROW_PROTOCOL, "development_metrics": {k: chosen[k] for k in ("accuracy", "f1_macro", "min_f1")},
+        "schema_version": 3, "candidate_id": "SVC+EXCL", "model_id": "SVC", "decoder": "exclude_seen",
+        "protocol": assets.ROW_PROTOCOL,
+        "development_metrics": {k: chosen[k] for k in ("accuracy", "f1_macro", "min_f1", "f1_dermatology")},
         "train_sha256": assets._sha256(train), "summary_sha256": assets._sha256(experiment / "summary.csv"),
         "experiment_sha256": assets._sha256(experiment / "experiment.json"),
     }), encoding="utf-8")
@@ -93,7 +99,7 @@ class PaperAssetTests(unittest.TestCase):
             root = Path(temporary)
             train, experiment, selection = fixture(root)
             output = root / "assets"
-            with patch.object(assets, "_plot_confusion", side_effect=lambda matrix, path: path.write_bytes(b"plot fixture")):
+            with patch.object(assets, "_plot_confusion", side_effect=lambda matrix, path, classes: path.write_bytes(b"plot fixture")):
                 result = assets.build_assets(experiment, selection, output, train_path=train)
             self.assertEqual(result["selected_candidate_id"], "SVC+EXCL")
             metadata = json.loads((output / "selected_metrics.json").read_text(encoding="utf-8"))
@@ -108,7 +114,32 @@ class PaperAssetTests(unittest.TestCase):
                              {"matched_error_persists", "unmatched_error"})
             self.assertEqual(metadata["optional_raw_error_correction"]["category"], "raw_error_corrected")
             self.assertIn("R+EX", (output / "results.tex").read_text(encoding="utf-8"))
+            self.assertEqual((output / "gate_diagnostics.csv").read_bytes(),
+                             (experiment / "gate_diagnostics.csv").read_bytes())
             self.assertFalse((root / "test_no_labels.csv").exists())
+
+    def test_augmented_svc_selection_is_named_and_reported_as_svc(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            train, experiment, selection = fixture(root)
+            chosen = json.loads(selection.read_text(encoding="utf-8"))
+            chosen.update(candidate_id="SVC_AUG+EXCL", model_id="SVC_AUG")
+            selection.write_text(json.dumps(chosen), encoding="utf-8")
+            output = root / "assets"
+            with patch.object(assets, "_plot_confusion", side_effect=lambda matrix, path, classes: path.write_bytes(b"plot fixture")):
+                result = assets.build_assets(experiment, selection, output, train_path=train)
+            self.assertEqual(result["selected_model_id"], "SVC_AUG")
+            self.assertIn(r"\textbf{SVC+mix}", (output / "results.tex").read_text(encoding="utf-8"))
+            self.assertEqual(len(assets._rows(output / "global_comparison.csv")), 11)
+
+    def test_changed_promotion_evidence_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            train, experiment, selection = fixture(root)
+            path = experiment / "gate_diagnostics.csv"
+            path.write_bytes(path.read_bytes() + b"\n")
+            with self.assertRaisesRegex(ValueError, "artifact hash mismatch"):
+                assets.build_assets(experiment, selection, root / "assets", train_path=train)
 
     def test_stale_summary_hash_is_rejected_before_rendering(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -151,13 +182,32 @@ class PaperAssetTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "OOF/per-class"):
                 assets.build_assets(experiment, selection, root / "assets", train_path=train)
 
+    def test_dermatology_gate_metric_is_recomputed_from_predictions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            train, experiment, selection = fixture(root)
+            path = experiment / "summary.csv"
+            rows = assets._rows(path)
+            rows[0]["f1_dermatology"] = ".123"
+            write_csv(path, rows)
+            metadata_path = experiment / "experiment.json"
+            design = json.loads(metadata_path.read_text(encoding="utf-8"))
+            design["artifacts_sha256"]["summary.csv"] = assets._sha256(path)
+            metadata_path.write_text(json.dumps(design), encoding="utf-8")
+            chosen = json.loads(selection.read_text(encoding="utf-8"))
+            chosen["summary_sha256"] = assets._sha256(path)
+            chosen["experiment_sha256"] = assets._sha256(metadata_path)
+            selection.write_text(json.dumps(chosen), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "OOF/summary.*Dermatology F1"):
+                assets.build_assets(experiment, selection, root / "assets", train_path=train)
+
     def test_legacy_selection_is_not_silently_reinterpreted(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             selection = root / "selection.json"
             selection.write_text('{"schema_version":1,"model_id":"SVC"}', encoding="utf-8")
             result = assets.build_assets(root / "absent", selection, root / "assets")
-            self.assertEqual(result["status"], "waiting_for_schema_2_selection")
+            self.assertEqual(result["status"], "waiting_for_schema_3_selection")
 
     def test_grouped_note_split_is_checked_even_when_metrics_are_unchanged(self):
         with tempfile.TemporaryDirectory() as temporary:

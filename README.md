@@ -1,149 +1,151 @@
 # Help the doctor
 
-O percurso atual está em **03_experiencia_controlada.ipynb**. A pergunta é:
-**How does cross-label duplication affect the evaluation and prediction of
-medical specialties from clinical text?** O projeto compara Naive Bayes,
-regressão logística e LinearSVC, pesos de classe, augmentation conservadora,
-cópias de controlo e exclusão das classes já observadas para o mesmo input.
+Pergunta: **How does cross-label duplication affect the evaluation and prediction
+of medical specialties from clinical text?** O percurso atual é
+`03_experiencia_controlada.ipynb`. Comparamos NB, regressão logística (LR) e
+LinearSVC, com e sem exclusão de classes observadas para o mesmo input.
+LR/SVC comparam originais, recombinação de secções e cópias de controlo.
 
-A avaliação final mantém dois cenários explícitos: cinco folds estratificados
-por **linhas** e cinco folds agrupados por **nota**. As mesmas configurações
-são avaliadas nos dois, sem escolher o protocolo com o maior score. A seleção
-usa desenvolvimento por linhas; o resultado agrupado do mesmo candidato
-descreve generalização a notas inéditas. Ambos são desenvolvimento exploratório
-após inspeção deste corpus, sem avaliação independente após seleção.
+Cinco folds por **linhas** admitem notas conhecidas; cinco folds agrupados por
+**nota** avaliam notas inéditas. São cenários separados e desenvolvimento
+exploratório, sem teste independente após seleção. Os scores oficiais são
+desconhecidos.
 
-## Executar e reproduzir
+## Reproduzir
 
-Na pasta do projeto, criar um ambiente Python e instalar dependências:
+Na raiz, com Python 3.14.3:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-submission.txt
+.\.venv\Scripts\python.exe classify.py
 ```
 
-O percurso completo, incluindo a auditoria e as sensibilidades de seeds 1/2:
+O último comando verifica `selected_model.json`, dados e código, parte dos
+**2.669 originais** e gera as misturas da configuração selecionada antes de
+ajustar o modelo. Produz **398 previsões** sem cabeçalho,
+na ordem do teste limpo. Dispensa modelos guardados e outputs de validação.
+O teste só é aberto depois de fixados o modelo e o índice de treino.
+
+Para reproduzir também a experiência, seleção e paper:
 
 ```powershell
-.\.venv\Scripts\python.exe audit_duplicate_exclusion.py
-.\.venv\Scripts\python.exe audit_duplicate_key_sensitivity.py
 .\.venv\Scripts\python.exe run_final_evaluation.py
 .\.venv\Scripts\python.exe classify.py --select
 .\.venv\Scripts\python.exe build_paper_assets.py
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build_paper.ps1 -Offline
 ```
 
-Os dois primeiros comandos reproduzem a revisão exploratória. A avaliação
-final refaz a comparação principal com o helper de produção; reutiliza
-opcionalmente os scores das seeds 1/2 para verificar a equivalência do decoder,
-sem os usar na seleção. Sem aquela auditoria, a comparação principal continua
-completa, mas a sensibilidade adicional não estará disponível.
+O runner exige plano congelado e cinco exemplos inspecionados; recusa fontes
+alteradas ou sobrepor uma execução existente. Antes de repetir, preservar a
+pasta de resultados atual noutro local. Os manifestos registam versões, fontes,
+folds e hashes; `--select` verifica a experiência antes de aplicar a regra.
 
-Apenas o quarto comando lê o teste oficial: primeiro seleciona o candidato e
-ajusta o classificador e o índice em todos os **2.669 originais**; depois gera
-as **398 previsões**, uma especialidade por linha, sem cabeçalho e na ordem
-original. Nenhuma estatística de correspondências do teste entra na escolha
-do modelo. O teste não tem rótulos e não tem métricas medidas.
+As dependências de Jupyter estão em `requirements.txt`. O notebook reutiliza
+uma experiência concluída. Os notebooks 01/02 e os scripts `audit_duplicate_*`
+documentam exploração anterior; não são confirmação independente.
 
-Para regenerar apenas as previsões, usar classify.py sem --select. Esse
-comando reutiliza selected_model.json e verifica hashes do treino, código e
-configuração. Alterações de dados, implementação ou avaliação requerem repetir
-as etapas correspondentes; as verificações rejeitam seleções antigas ou
-artefactos incompatíveis em vez de reutilizá-los silenciosamente.
+## Modelos e exclusão
 
-O notebook 03 permite explorar as mesmas etapas. Por omissão reutiliza uma
-avaliação concluída e verificada; REPEAT_EXPERIMENT=True volta a executá-la.
-Os notebooks 01 e 02 documentam preparação e exploração anteriores; o 02
-é histórico e não substitui a seleção final atual.
+NB segue a especificação da baseline: TF-IDF de `description` em minúsculas,
+Porter stemming, alpha=1 e priors empíricos. LR/SVC usam blocos TF-IDF separados
+de `sample_name` e `transcription`, palavras/bigramas, min_df=2, TF sublinear,
+C=0.25, pesos equilibrados dos originais e até 2.000 iterações.
 
-## Classificação e exclusão
+A exclusão usa o par **sample_name + transcription**, em minúsculas e com
+espaços normalizados. O índice contém só originais do treino do fold. Num input
+conhecido, exclui todas as classes nas suas cópias e escolhe o maior score
+restante. Sem correspondência, com input totalmente vazio ou todas as classes
+bloqueadas, mantém a previsão normal. NB também usa este par no índice,
+embora o classificador leia apenas a descrição.
 
-NB segue a baseline especificada: TF-IDF de description em minúsculas,
-Porter stemming, MultinomialNB com alpha=1 e priors empíricos. LR e SVC usam
-TF-IDF separado de sample_name e transcription, unigramas/bigramas,
-min_df=2, TF sublinear, C=0.25 e até 2.000 iterações. A implementação e as
-versões efetivamente usadas ficam registadas nos manifestos.
+A hipótese é que outra anotação do mesmo input tende a usar uma classe ainda
+não observada. É uma regularidade deste corpus, sem garantia clínica ou de
+transferência. A avaliação agrupada verifica que a exclusão fica inativa.
 
-A chave da exclusão é o par completo **sample_name + transcription**, em
-minúsculas e com espaços normalizados. O índice contém só os originais do
-treino do fold, nunca validação nem descendentes sintéticos. Inputs
-totalmente vazios não coincidem. Para um input conhecido, o decoder exclui
-todas as classes presentes nas suas cópias de treino e escolhe o maior score
-restante. Sem correspondência, ou se todas as classes forem excluídas,
-mantém a previsão original. NB também usa esse par no lookup, embora o seu
-classificador leia apenas description.
+## Augmentation e promoção
 
-A regra explora uma regularidade da anotação: outra cópia tende a representar
-uma especialidade ainda não observada. **Não é uma regra médica nem uma
-garantia para outra coleção.** A identidade completa evita o contraexemplo de
-transcrições limitadas a CHIEF COMPLAINT: sob títulos diferentes. A validação
-agrupada verifica que o decoder fica inativo em notas inéditas.
+Nas quatro classes com menos de 100 originais, uma variante substitui uma
+secção por outra com o mesmo heading, de outro original da mesma classe e de
+outro grupo de duplicados. Ambos pertencem ao treino do mesmo fold. Notas sem
+secções elegíveis são ignoradas; título e outras secções são conservados.
 
-Cada uma das sete configurações base é avaliada com decoder normal e com
-exclusão, totalizando 14 candidatos em cada cenário. Entre candidatos com F1
-mínimo >=25%, seleciona-se a maior accuracy por linhas, depois macro F1 e F1
-mínimo, com desempate determinístico. Se nenhum cumprir a restrição, prioriza-se
-macro F1. O requisito de accuracy é estritamente >49%. A escolha não constitui
-uma medição dos quatro pontos automáticos no teste oficial.
+Estas misturas **não têm coerência clínica validada**: podem combinar idades,
+sexos e diagnósticos incompatíveis. Cinco exemplos fixos são inspecionados
+antes dos ajustes. Cópias dos mesmos originais, no mesmo número e com os mesmos
+pesos, controlam a repetição. TF-IDF é reajustado por condição.
 
-## Augmentation e dados
+`RECOMBINATION_PLAN.md` e `augmentation_decision_plan.json` registam a regra
+anterior aos novos scores: uma mistura só substitui o SVC com exclusão se
+melhorar **macro F1 e F1 de Dermatology** face ao original da sua família **e ao
+SVC atual**, perdendo no máximo um ponto de accuracy e mantendo accuracy >49%
+e todos os F1 >=25%, no cenário por linhas com exclusão. Entre candidatas
+admitidas, priorizam-se macro F1, Dermatology F1 e accuracy. Se nenhuma passar,
+mantém-se o SVC. Cópias e scores agrupados são diagnósticos.
 
-Os braços LR são A: uniformes; B: balanced; C: uniformes + article dropout;
-D: balanced + dropout; E: balanced + cópias das mesmas fontes aceites em D.
-A transformação remove max(1,floor(0.2*m)) de m ocorrências isoladas de
-the apenas da transcrição, numa variante por fonte elegível das quatro
-classes com menos de 100 exemplos. Títulos e outros tokens são preservados.
-A taxa é sobre ocorrências do artigo, não 20% do texto. Não há validação
-clínica nem geração de casos por LLM.
+## Dados, paper e entrega
 
-Os pesos de classe são estimados nos originais de cada treino; a massa total
-é normalizada ao número de originais. D/E têm as mesmas fontes, contagens e
-pesos, refazendo TF-IDF nos respetivos textos de treino. Validação e teste
-nunca são aumentados. A conclusão limita-se a esta transformação e orçamento.
+A preparação repara a estrutura CSV conservando rótulos, ordem e texto
+disponível. Conservam-se casos incompletos e anotações em conflito.
+`keywords` é excluído: os 2.219 valores não vazios começam pela classe.
+`train.csv` e o teste limpo recebido são preservados byte a byte. O leitor
+do teste exige quatro campos e 398 registos sem cabeçalho.
 
-data_preparation.py repara a estrutura CSV conservando rótulos, ordem e texto
-disponível. Campos incompletos e conflitos ficam documentados; não são
-corrigidos por julgamento médico. keywords é excluído porque todos os seus
-2.219 valores não vazios começam pela classe. train.csv e o teste limpo
-recebido são preservados byte a byte. O leitor do teste usa csv sem cabeçalho,
-exige quatro campos e 398 registos, sem as heurísticas da versão antiga.
+`relatorio.md` é o texto de trabalho; `paper.tex` segue o template:
+duas colunas, 10 pt e Bera. As referências compactas impressas estão em
+`paper_assets/references.tex`, com os metadados completos em `paper.bib`.
+Tectonic está em `.tools/tectonic/`; num checkout novo, executar
+`install_latex.ps1`. O primeiro build pode
+precisar de rede, omitindo `-Offline`. O build regista hashes em
+`output/pdf/compilation.json` e rejeita mais de três páginas no PDF completo,
+incluindo a bibliografia. O enunciado/template exclui formalmente a bibliografia,
+mas a preferência mais recente do utilizador impõe este limite mais estrito de
+três páginas totais.
 
-## Paper e entrega
+A identidade está preenchida para o **grupo 64**: Tiago Pinto, Gonçalo Narciso
+Rolo, Gabriel Alexandre Lino Simões Ferreira e Miguel Neves Antão Ermida Parreira,
+com **25% de contribuição cada**. O sistema selecionado é SVC com recombinação
+e exclusão; a reprodução das previsões permanece inalterada e foi verificada
+numa pasta limpa com resultados idênticos.
 
-relatorio.md contém o texto de trabalho; paper.tex e paper.bib seguem o
-template e usam os artefactos em paper_assets/. Tectonic está instalado
-localmente em .tools/tectonic/. Num checkout novo, executar install_latex.ps1;
-o primeiro build pode precisar de rede, omitindo -Offline.
+Para recompilar o paper e voltar a gerar os ficheiros finais do grupo 64,
+**na raiz deste projeto completo**, executar:
 
-O PDF fica em output/pdf/paper.pdf. O build regista hashes e contagem em
-output/pdf/compilation.json e rejeita mais de três páginas de corpo.
-A bibliografia está excluída desse limite pelo template. Grupo, autores e
-percentagens de contribuição ficam por preencher, por decisão do utilizador:
-preenchê-los e recompilar antes de entregar.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_paper.ps1 -Offline
+.\.venv\Scripts\python.exe prepare_submission.py --group 64
+```
 
-O enunciado exige **NUM.zip**, contendo **NUM.pdf**, **results.txt**,
-**código do projeto** e eventuais datasets adicionais recolhidos. Exclui
-os modelos treinados. Não incluir .venv/, .tools/, caches ou modelos joblib.
-A submissão é pelo Fénix até **16 de outubro de 2026, às 23h59**.
-Os datasets originais têm de estar disponíveis na raiz para reproduzir o código.
+Estes comandos voltam a verificar o limite de três páginas totais, incluindo
+bibliografia, e geram `output/submission/64.pdf` e `64.zip`, usando as
+previsões já verificadas. Não é necessário repetir a avaliação, a seleção,
+a inferência ou a geração das tabelas. Os fontes do paper e as ferramentas
+de compilação/empacotamento permanecem neste projeto; o ZIP curado contém
+os ficheiros de entrega e de reprodução das previsões.
 
-## Artefactos e verificações
+O enunciado exige **NUM.zip** com **NUM.pdf**, **results.txt** e **código**,
+sem modelos treinados. Para este grupo, `prepare_submission.py --group 64`
+cria o pacote final; `--draft` gera apenas um rascunho de verificação.
+Incluem-se os CSVs originais, dependências,
+plano e exemplos para reprodução numa pasta limpa; excluem-se ambientes e caches.
+
+Entrega pelo Fénix até **16 de outubro de 2026, às 23h59**. Os quatro pontos
+automáticos exigem accuracy **>49%** (2 pontos) e, adicionalmente, F1 **>=25%
+em todas as classes** (mais 2 pontos), medidos no teste oficial.
 
 | Caminho | Conteúdo |
 |---|---|
-| outputs/avaliacao_final/ | Desenho, hashes, 28 resultados, OOF, métricas por classe/fold, matrizes, erros e auditorias |
-| selected_model.json | Candidato, classificador, decoder, dois cenários, regra de seleção e proveniência |
-| outputs/final/inference.json | Ajuste completo, hashes e contagem do teste/previsões, sem métricas oficiais |
-| outputs/final/decoding_diagnostics.csv | Decisões do decoder na inferência, pela ordem dos casos |
-| outputs/final/before_exclusion/ | Cópia preservada das previsões e seleção anteriores à correção |
-| paper_assets/ | Tabelas, matriz e métricas validadas para o paper |
-| auditoria_validacao_exclusao.md | Motivação e reprodução da correção metodológica |
-| outputs/auditoria_exclusao/ | Auditoria exploratória anterior, separada da comparação final |
-| outputs/augmentation_controlada/ | Experiência agrupada histórica; não é a seleção final atual |
+| outputs/avaliacao_recombinacao/ | Experiência atual, OOF, métricas, erros e decisão |
+| selected_model.json | Sistema, dois cenários e proveniência |
+| outputs/final/ | Inferência e diagnóstico de exclusão, sem scores oficiais |
+| paper_assets/ | Tabelas e matriz verificadas |
+| output/pdf/ | PDF e hashes das fontes |
+| output/submission/ | Pacote curado e manifesto |
+| outputs/before_section_recombination/ | Snapshot das fontes e entrega anteriores |
+| outputs/avaliacao_final/ | Experiência histórica com remoção de artigos |
+
+Verificação:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
-
-Os outputs ignorados pelo Git podem ser recriados. Os scripts e o notebook
-não dependem de um modelo treinado previamente guardado.

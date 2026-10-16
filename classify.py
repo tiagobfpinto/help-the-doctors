@@ -15,6 +15,11 @@ import pandas as pd
 from threadpoolctl import threadpool_limits
 
 from augmentation import LR_C, fit_evaluated_model
+from augmentation_policy import (
+    MODEL_IDS, MODEL_NAMES, DECODERS, PRIMARY_PROTOCOL, GROUPED_PROTOCOL,
+    CANDIDATE_IDS, SOURCE_FILES, PLAN_FILENAME, POLICY_SPEC, SELECTION_RULE,
+    INCUMBENT, PROMOTION_BASELINES, choose_candidate, validate_decision_plan,
+)
 from config import (
     FINAL_EVALUATION_DIR, FINAL_OUTPUT_DIR, MIN_ACCURACY, MIN_CLASS_F1,
     N_FOLDS, RESULTS_FILE, ROOT, SEED, SELECTED_MODEL_FILE, TEST_FILE, TRAIN_FILE,
@@ -23,24 +28,11 @@ from data_preparation import repair_training_csv, sha256
 from duplicate_exclusion import fit_exclusion_index, score_model
 from read_test_set import read_test_cases, write_results
 
-MODEL_IDS = {"A", "B", "C", "D", "E", "NB", "SVC"}
-MODEL_NAMES = {name: "MultinomialNB" if name == "NB" else "LinearSVC" if name == "SVC"
-               else "LogisticRegression" for name in MODEL_IDS}
-DECODERS = {"raw", "exclude_seen"}
-PRIMARY_PROTOCOL = "stratified_rows_development"
-GROUPED_PROTOCOL = "grouped_development"
-CANDIDATE_IDS = MODEL_IDS | {name + "+EXCL" for name in MODEL_IDS}
 IMPLEMENTATION_FILES = (
-    "augmentation.py", "models.py", "data_preparation.py", "duplicate_exclusion.py",
+    "augmentation.py", "models.py", "data_preparation.py", "duplicate_exclusion.py", "augmentation_policy.py",
 )
-SELECTION_RULE = (
-    "Use only seed-0 five-fold stratified-row development metrics. Among all "
-    "fourteen classifier/decoder candidates with minimum per-class F1 >= 0.25, "
-    "maximize accuracy, then macro F1, then minimum F1, then alphabetical "
-    "candidate ID. If none satisfy the F1 constraint, maximize macro F1, then "
-    "accuracy and minimum F1. Report the same candidate's grouped metrics; "
-    "never select the larger score across protocols."
-)
+INFERENCE_FILES = ("classify.py", "read_test_set.py", "config.py")
+RELEASE_FILES = (*IMPLEMENTATION_FILES, *INFERENCE_FILES, PLAN_FILENAME)
 EVALUATION_STATUS = (
     "Exploratory development selection after corpus/annotation inspection and "
     "external methodological review; neither row nor grouped CV is an "
@@ -49,53 +41,13 @@ EVALUATION_STATUS = (
 )
 
 
-def choose_candidate(summary: pd.DataFrame) -> dict:
-    """Select in one scenario, checking complete matched reporting in both."""
-    required = {"candidate_id", "model_id", "decoder", "model", "protocol", "seed",
-                "accuracy", "f1_macro", "min_f1"}
-    if missing := required - set(summary.columns):
-        raise ValueError(f"Missing experiment columns: {sorted(missing)}")
-    protocols = {PRIMARY_PROTOCOL, GROUPED_PROTOCOL}
-    if set(summary["protocol"]) != protocols or set(summary["seed"]) != {SEED}:
-        raise ValueError("Require exactly the declared row/grouped protocols and seed.")
-    if summary.duplicated(["protocol", "candidate_id"]).any():
-        raise ValueError("Expected one row per candidate and protocol.")
-    for protocol in protocols:
-        if set(summary.loc[summary.protocol.eq(protocol), "candidate_id"]) != CANDIDATE_IDS:
-            raise ValueError("Run all fourteen candidates in both scenarios before selection.")
-    for row in summary.itertuples():
-        expected_id = row.model_id + ("+EXCL" if row.decoder == "exclude_seen" else "")
-        if (row.model_id not in MODEL_IDS or row.decoder not in DECODERS
-                or row.candidate_id != expected_id or row.model != MODEL_NAMES[row.model_id]):
-            raise ValueError("Candidate ID, classifier and decoder are inconsistent.")
-    scores = summary[["accuracy", "f1_macro", "min_f1"]].to_numpy(dtype=float)
-    if not np.isfinite(scores).all() or ((scores < 0) | (scores > 1)).any():
-        raise ValueError("Metrics must be finite fractions between zero and one.")
-    primary = summary.loc[summary.protocol.eq(PRIMARY_PROTOCOL)]
-    eligible = primary.loc[primary.min_f1.ge(MIN_CLASS_F1)]
-    if len(eligible):
-        order = ["accuracy", "f1_macro", "min_f1", "candidate_id"]
-    else:
-        eligible = primary
-        order = ["f1_macro", "accuracy", "min_f1", "candidate_id"]
-    row = eligible.sort_values(order, ascending=[False, False, False, True]).iloc[0]
-    grouped = summary.loc[summary.protocol.eq(GROUPED_PROTOCOL) & summary.candidate_id.eq(row.candidate_id)].iloc[0]
-    metrics = lambda record: {key: float(record[key]) for key in ("accuracy", "f1_macro", "min_f1")}
-    return {
-        "candidate_id": str(row.candidate_id), "model_id": str(row.model_id),
-        "model": str(row.model), "decoder": str(row.decoder),
-        "protocol": PRIMARY_PROTOCOL, "development_metrics": metrics(row),
-        "grouped_protocol": GROUPED_PROTOCOL, "grouped_metrics": metrics(grouped),
-        "meets_development_thresholds": bool(row.accuracy > MIN_ACCURACY and row.min_f1 >= MIN_CLASS_F1),
-    }
-
-
 def record_selection() -> dict:
     """Select from a completed train-only experiment, verifying its provenance."""
     summary_path = FINAL_EVALUATION_DIR / "summary.csv"
     experiment_path = FINAL_EVALUATION_DIR / "experiment.json"
     run_state_path = FINAL_EVALUATION_DIR / "run_state.json"
-    if not all(path.is_file() for path in (summary_path, experiment_path, run_state_path)):
+    class_path = FINAL_EVALUATION_DIR / "metrics_per_class.csv"
+    if not all(path.is_file() for path in (summary_path, class_path, experiment_path, run_state_path)):
         raise FileNotFoundError("Run run_final_evaluation.py before selecting the final model.")
     experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
     state = json.loads(run_state_path.read_text(encoding="utf-8"))
@@ -103,27 +55,37 @@ def record_selection() -> dict:
         raise ValueError("The final evaluation is still running or incomplete.")
     if experiment.get("seed") != SEED or experiment.get("LR_C") != LR_C or experiment.get("n_folds") != N_FOLDS:
         raise ValueError("Current settings differ from the evaluated experiment.")
+    validate_decision_plan(ROOT / PLAN_FILENAME, ROOT)
     sources = experiment.get("sources_sha256", {})
     if sources.get("train.csv") != sha256(TRAIN_FILE):
         raise ValueError("Development scores do not match the current training file.")
-    for name in IMPLEMENTATION_FILES:
+    for name in (*SOURCE_FILES[1:], PLAN_FILENAME):
         if sources.get(name) != sha256(ROOT / name):
             raise ValueError(f"{name} changed since evaluation; rerun the final evaluation.")
     artifact_hashes = experiment.get("artifacts_sha256", {})
-    if artifact_hashes.get("summary.csv") != sha256(summary_path):
-        raise ValueError("The summary differs from the completed evaluation manifest.")
+    required_artifacts = {"summary.csv", "metrics_per_class.csv", "gate_diagnostics.csv",
+                          "promotion_decision.json", "oof_predictions.csv", "design.json", PLAN_FILENAME}
+    if not required_artifacts <= set(artifact_hashes):
+        raise ValueError("The completed evaluation manifest is missing required evidence.")
     for name, expected in artifact_hashes.items():
         path = (FINAL_EVALUATION_DIR / name).resolve()
         if not path.is_relative_to(FINAL_EVALUATION_DIR.resolve()) or not path.is_file() or sha256(path) != expected:
             raise ValueError(f"Evaluation artifact changed or missing: {name}")
-    selected = choose_candidate(pd.read_csv(summary_path, sep=";"))
+    selected = choose_candidate(pd.read_csv(summary_path, sep=";"), pd.read_csv(class_path, sep=";"))
+    saved_decision = experiment.get("promotion_decision", {})
+    if (saved_decision.get("candidate_id") != selected["candidate_id"]
+            or saved_decision.get("promotion_applied") != selected["promotion_applied"]):
+        raise ValueError("The persisted decision differs from the frozen promotion policy.")
     selected.update({
-        "schema_version": 2, "selection_rule": SELECTION_RULE,
+        "schema_version": 3, "selection_rule": SELECTION_RULE,
         "evaluation_status": EVALUATION_STATUS, "train_sha256": sources["train.csv"],
-        "experiment_directory": "outputs/avaliacao_final",
+        "experiment_directory": FINAL_EVALUATION_DIR.relative_to(ROOT).as_posix(),
         "summary_sha256": sha256(summary_path), "experiment_sha256": sha256(experiment_path),
         "implementation_sha256": {name: sha256(ROOT / name) for name in IMPLEMENTATION_FILES},
-        "inference_implementation_sha256": {name: sha256(ROOT / name) for name in ("classify.py", "read_test_set.py", "config.py")},
+        "inference_implementation_sha256": {name: sha256(ROOT / name) for name in INFERENCE_FILES},
+        "release_files_sha256": {name: sha256(ROOT / name) for name in RELEASE_FILES},
+        "decision_plan_sha256": sha256(ROOT / PLAN_FILENAME),
+        "release_requirements": "Normal inference requires train.csv, official inputs, this selection, and the declared code/plan files; development artifacts are needed only for --select.",
         "LR_C": LR_C, "seed": SEED, "n_folds": N_FOLDS,
     })
     SELECTED_MODEL_FILE.write_text(json.dumps(selected, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -132,10 +94,11 @@ def record_selection() -> dict:
 
 def load_selection() -> dict:
     selected = json.loads(SELECTED_MODEL_FILE.read_text(encoding="utf-8"))
-    if selected.get("schema_version") != 2 or selected.get("candidate_id") not in CANDIDATE_IDS:
+    if selected.get("schema_version") != 3 or selected.get("candidate_id") not in {INCUMBENT, *PROMOTION_BASELINES}:
         raise ValueError("Legacy or unsupported selection; run the final evaluation and --select.")
     expected_id = selected.get("model_id", "") + ("+EXCL" if selected.get("decoder") == "exclude_seen" else "")
-    if selected.get("decoder") not in DECODERS or selected["candidate_id"] != expected_id:
+    if (selected.get("decoder") not in DECODERS or selected["candidate_id"] != expected_id
+            or selected.get("model") != MODEL_NAMES.get(selected.get("model_id"))):
         raise ValueError("Selection contains an inconsistent classifier/decoder.")
     if selected.get("train_sha256") != sha256(TRAIN_FILE):
         raise ValueError("Selection is incompatible with the current training file.")
@@ -143,8 +106,27 @@ def load_selection() -> dict:
         raise ValueError("Settings changed; rerun the final evaluation and selection.")
     if selected.get("protocol") != PRIMARY_PROTOCOL or selected.get("grouped_protocol") != GROUPED_PROTOCOL:
         raise ValueError("Selection uses an unsupported evaluation protocol.")
+    if selected.get("selection_policy") != POLICY_SPEC:
+        raise ValueError("Selection uses a different augmentation promotion policy.")
+    diagnostics = selected.get("promotion_diagnostics", [])
+    if {item.get("candidate_id") for item in diagnostics} != set(PROMOTION_BASELINES):
+        raise ValueError("Selection omits the augmentation promotion diagnostics.")
+    passing = {item["candidate_id"] for item in diagnostics if item.get("promotion_pass") is True}
+    if selected.get("promotion_applied") != bool(passing):
+        raise ValueError("Selection promotion flag differs from its diagnostics.")
+    if ((not passing and selected["candidate_id"] != INCUMBENT)
+            or (passing and selected["candidate_id"] not in passing)):
+        raise ValueError("Selection violates the frozen promotion/fallback gate.")
+    for field in ("development_metrics", "grouped_metrics"):
+        metrics = selected.get(field, {})
+        if set(metrics) != {"accuracy", "f1_macro", "min_f1", "f1_dermatology"}:
+            raise ValueError("Selection is missing scenario metrics.")
+        values = np.asarray(list(metrics.values()), dtype=float)
+        if not np.isfinite(values).all() or ((values < 0) | (values > 1)).any():
+            raise ValueError("Selection metrics are invalid.")
     required_hashes = {"implementation_sha256": set(IMPLEMENTATION_FILES),
-                       "inference_implementation_sha256": {"classify.py", "read_test_set.py", "config.py"}}
+                       "inference_implementation_sha256": set(INFERENCE_FILES),
+                       "release_files_sha256": set(RELEASE_FILES)}
     for field, names in required_hashes.items():
         if set(selected.get(field, {})) != names:
             raise ValueError("Selection is missing implementation provenance; regenerate it.")

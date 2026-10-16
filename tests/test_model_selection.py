@@ -1,5 +1,4 @@
-"""Selection must use the declared scenario, preserve class coverage and provenance."""
-
+"""Selection verifies completed evidence; normal release inference is standalone."""
 import json
 from pathlib import Path
 import tempfile
@@ -8,130 +7,113 @@ from unittest.mock import patch
 
 import pandas as pd
 
+import augmentation_policy as policy
 import classify
-from classify import choose_candidate
 from data_preparation import sha256
+from tests import test_augmentation_policy as policy_tests
 
 
 class SelectionTests(unittest.TestCase):
-    def summary(self):
-        return pd.DataFrame([
-            {"candidate_id": name + ("+EXCL" if decoder == "exclude_seen" else ""),
-             "model_id": name, "decoder": decoder, "model": classify.MODEL_NAMES[name],
-             "protocol": protocol, "seed": classify.SEED,
-             "accuracy": .40, "f1_macro": .40, "min_f1": .20}
-            for protocol in (classify.PRIMARY_PROTOCOL, classify.GROUPED_PROTOCOL)
-            for name in sorted(classify.MODEL_IDS)
-            for decoder in ("raw", "exclude_seen")
-        ])
-
-    def set_metrics(self, frame, candidate, metrics, protocol=None):
-        mask = frame.candidate_id.eq(candidate) & frame.protocol.eq(protocol or classify.PRIMARY_PROTOCOL)
-        frame.loc[mask, list(metrics)] = list(metrics.values())
-
-    def test_class_constraint_precedes_accuracy(self):
-        frame = self.summary()
-        self.set_metrics(frame, "A", {"accuracy": .80, "min_f1": .10})
-        self.set_metrics(frame, "B+EXCL", {"accuracy": .52, "min_f1": .30})
-        chosen = choose_candidate(frame)
-        self.assertEqual(chosen["candidate_id"], "B+EXCL")
-        self.assertEqual(chosen["decoder"], "exclude_seen")
-
-    def test_grouped_score_cannot_change_primary_selection(self):
-        frame = self.summary()
-        self.set_metrics(frame, "B", {"accuracy": .52, "min_f1": .30})
-        self.set_metrics(frame, "SVC", {"accuracy": .99, "min_f1": .90}, classify.GROUPED_PROTOCOL)
-        chosen = choose_candidate(frame)
-        self.assertEqual(chosen["candidate_id"], "B")
-        self.assertEqual(chosen["grouped_metrics"]["accuracy"], .40)
-
-    def test_fallback_uses_macro_f1(self):
-        frame = self.summary()
-        self.set_metrics(frame, "D", {"accuracy": .35, "f1_macro": .60})
-        self.assertEqual(choose_candidate(frame)["candidate_id"], "D")
-
-    def test_accuracy_must_be_strictly_above_threshold(self):
-        frame = self.summary()
-        self.set_metrics(frame, "B", {"accuracy": .49, "min_f1": .25})
-        self.assertFalse(choose_candidate(frame)["meets_development_thresholds"])
-
-    def test_undeclared_protocol_or_seed_is_rejected(self):
-        for column, value in (("protocol", "some_other_split"), ("seed", 99)):
-            frame = self.summary()
-            frame.loc[0, column] = value
-            with self.assertRaises(ValueError):
-                choose_candidate(frame)
-
-    def test_partial_duplicate_inconsistent_or_nonfinite_experiments_are_rejected(self):
-        base = self.summary()
-        cases = [base.iloc[:-1], pd.concat([base, base.iloc[:1]])]
-        for column, value in (("accuracy", float("nan")), ("accuracy", 1.1),
-                              ("decoder", "unknown"), ("model_id", "SVC")):
-            frame = base.copy()
-            frame.loc[0, column] = value
-            cases.append(frame)
-        for frame in cases:
-            with self.subTest(rows=len(frame)):
-                with self.assertRaises(ValueError):
-                    choose_candidate(frame)
-
-    def test_tie_is_deterministic(self):
-        frame = self.summary()
-        self.assertEqual(choose_candidate(frame.sample(frac=1, random_state=1))["candidate_id"], "A")
-
     def fixture(self, directory):
         root = Path(directory)
-        training = root / "train.csv"
-        training.write_text("fixture", encoding="utf-8")
-        names = classify.IMPLEMENTATION_FILES + ("classify.py", "read_test_set.py", "config.py")
-        for name in names:
-            (root / name).write_text("fixture code", encoding="utf-8")
-        summary = root / "summary.csv"
-        self.summary().to_csv(summary, sep=";", index=False)
-        experiment = {
-            "state": "complete", "seed": classify.SEED, "LR_C": classify.LR_C,
-            "n_folds": classify.N_FOLDS,
-            "sources_sha256": {"train.csv": sha256(training),
-                              **{name: sha256(root / name) for name in classify.IMPLEMENTATION_FILES}},
-            "artifacts_sha256": {"summary.csv": sha256(summary)},
+        output = root / "experiment"
+        output.mkdir()
+        for name in {*policy.SOURCE_FILES, *classify.RELEASE_FILES} - {policy.PLAN_FILENAME}:
+            (root / name).write_text("fixture code or training data", encoding="utf-8")
+        example = root / "review.json"
+        example.write_text("[]", encoding="utf-8")
+        plan = {
+            "status": "frozen", "approved_to_fit": True, "policy_spec": policy.POLICY_SPEC,
+            "review": {"reviewed_count": 5, "reviewer": "test reviewer", "examples_file": example.name,
+                       "examples_sha256": sha256(example)},
+            "settings": {"seed": 0, "n_folds": 5, "LR_C": .25, "model_ids": list(policy.MODEL_IDS), "protocols": list(policy.PROTOCOLS)},
+            "sources_sha256": {name: sha256(root / name) for name in policy.SOURCE_FILES},
         }
-        (root / "experiment.json").write_text(json.dumps(experiment), encoding="utf-8")
-        (root / "run_state.json").write_text('{"state": "complete"}', encoding="utf-8")
-        return root, training
+        (root / policy.PLAN_FILENAME).write_text(json.dumps(plan), encoding="utf-8")
+        summary, per_class = policy_tests.PromotionPolicyTests().fixture()
+        summary.to_csv(output / "summary.csv", sep=";", index=False)
+        per_class.to_csv(output / "metrics_per_class.csv", sep=";", index=False)
+        decision = policy.choose_candidate(summary, per_class)
+        pd.DataFrame(decision["promotion_diagnostics"]).to_csv(output / "gate_diagnostics.csv", sep=";", index=False)
+        for name, value in (("promotion_decision.json", decision), ("design.json", {}), (policy.PLAN_FILENAME, plan)):
+            (output / name).write_text(json.dumps(value), encoding="utf-8")
+        (output / "oof_predictions.csv").write_text("fixture predictions", encoding="utf-8")
+        experiment = {
+            "state": "complete", "seed": 0, "LR_C": .25, "n_folds": 5,
+            "sources_sha256": {name: sha256(root / name) for name in (*policy.SOURCE_FILES, policy.PLAN_FILENAME)},
+            "artifacts_sha256": {p.name: sha256(p) for p in output.iterdir()},
+            "promotion_decision": decision,
+        }
+        (output / "experiment.json").write_text(json.dumps(experiment), encoding="utf-8")
+        (output / "run_state.json").write_text('{"state":"complete"}', encoding="utf-8")
+        return root, output
 
-    def test_selection_rejects_changed_implementation_and_incomplete_run(self):
+    def patched(self, root, output):
+        return patch.multiple(classify, FINAL_EVALUATION_DIR=output, ROOT=root,
+                              TRAIN_FILE=root / "train.csv", SELECTED_MODEL_FILE=root / "selected.json")
+
+    def test_selection_and_standalone_load_without_cv_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
-            root, training = self.fixture(directory)
-            (root / "run_state.json").write_text('{"state": "running"}', encoding="utf-8")
-            with patch.multiple(classify, FINAL_EVALUATION_DIR=root, ROOT=root,
-                                TRAIN_FILE=training, SELECTED_MODEL_FILE=root / "selected.json"):
-                with self.assertRaisesRegex(ValueError, "running or incomplete"):
+            root, output = self.fixture(directory)
+            with self.patched(root, output):
+                selected = classify.record_selection()
+                self.assertEqual(selected["schema_version"], 3)
+                self.assertEqual(selected["candidate_id"], policy.INCUMBENT)
+                for path in output.iterdir():
+                    path.unlink()
+                output.rmdir()
+                self.assertEqual(classify.load_selection(), selected)
+
+    def test_modified_source_or_manifest_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, output = self.fixture(directory)
+            with self.patched(root, output):
+                with (output / "metrics_per_class.csv").open("a", encoding="utf-8") as stream:
+                    stream.write("\n")
+                with self.assertRaisesRegex(ValueError, "artifact"):
                     classify.record_selection()
-                (root / "run_state.json").write_text('{"state": "complete"}', encoding="utf-8")
-                (root / "duplicate_exclusion.py").write_text("changed after evaluation", encoding="utf-8")
-                with self.assertRaisesRegex(ValueError, "changed since evaluation"):
+                (root / "duplicate_exclusion.py").write_text("changed", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "frozen decision plan"):
                     classify.record_selection()
                 self.assertFalse((root / "selected.json").exists())
 
-    def test_manifest_detects_modified_summary_and_valid_selection_loads(self):
+    def test_incomplete_run_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            root, training = self.fixture(directory)
-            with patch.multiple(classify, FINAL_EVALUATION_DIR=root, ROOT=root,
-                                TRAIN_FILE=training, SELECTED_MODEL_FILE=root / "selected.json"):
-                selected = classify.record_selection()
-                self.assertEqual(selected, classify.load_selection())
-                with (root / "summary.csv").open("a", encoding="utf-8") as stream:
-                    stream.write("\n")
-                with self.assertRaisesRegex(ValueError, "manifest"):
-                    classify.record_selection()
+            root, output = self.fixture(directory)
+            (output / "run_state.json").write_text('{"state":"running"}', encoding="utf-8")
+            with self.patched(root, output), self.assertRaisesRegex(ValueError, "incomplete"):
+                classify.record_selection()
 
-    def test_legacy_selection_requires_explicit_upgrade(self):
+    def test_release_hash_detects_changed_inference_source_without_cv(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, output = self.fixture(directory)
+            with self.patched(root, output):
+                classify.record_selection()
+                (root / "read_test_set.py").write_text("changed", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "changed since selection"):
+                    classify.load_selection()
+
+    def test_legacy_selection_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "selected.json"
-            path.write_text('{"schema_version": 1, "model_id": "SVC"}', encoding="utf-8")
-            with patch.object(classify, "SELECTED_MODEL_FILE", path):
-                with self.assertRaisesRegex(ValueError, "Legacy"):
-                    classify.load_selection()
+            path.write_text('{"schema_version":2,"candidate_id":"SVC+EXCL"}', encoding="utf-8")
+            with patch.object(classify, "SELECTED_MODEL_FILE", path), self.assertRaisesRegex(ValueError, "Legacy"):
+                classify.load_selection()
+
+    def test_plan_requires_manual_review_and_current_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, _ = self.fixture(directory)
+            path = root / policy.PLAN_FILENAME
+            plan = policy.validate_decision_plan(path, root)
+            for key, value in (("approved_to_fit", False), ("status", "draft")):
+                bad = dict(plan, **{key: value})
+                path.write_text(json.dumps(bad), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "not frozen/approved"):
+                    policy.validate_decision_plan(path, root)
+            path.write_text(json.dumps(plan), encoding="utf-8")
+            (root / "review.json").write_text("different examples", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "reviewed augmentation"):
+                policy.validate_decision_plan(path, root)
 
 
 if __name__ == "__main__":

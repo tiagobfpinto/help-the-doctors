@@ -17,21 +17,32 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_EXPERIMENT = ROOT / "outputs" / "avaliacao_final"
+DEFAULT_EXPERIMENT = ROOT / "outputs" / "avaliacao_recombinacao"
 DEFAULT_SELECTION = ROOT / "selected_model.json"
 DEFAULT_OUTPUT = ROOT / "paper_assets"
-ORDER = ("NB", "A", "B", "C", "D", "E", "SVC")
+ORDER = ("NB", "B", "D", "E", "SVC", "SVC_AUG", "SVC_COPY")
 ROW_PROTOCOL = "stratified_rows_development"
 GROUP_PROTOCOL = "grouped_development"
 PROTOCOLS = (ROW_PROTOCOL, GROUP_PROTOCOL)
 DECODERS = ("raw", "exclude_seen")
 # Editorial examples requested after inspecting the primary OOF errors. They
 # are used only while they remain errors of the explicitly selected candidate.
-PREFERRED_ERROR_IDS = ("309", "1383", "314")
+PREFERRED_ERROR_IDS = ("1892", "309", "1383")
 SYSTEM_NAMES = {
-    "NB": "NB: description", "A": "LR A: uniform", "B": "LR B: balanced",
-    "C": "LR C: dropout", "D": "LR D: balanced + dropout",
-    "E": "LR E: balanced + copies", "SVC": "SVC: balanced",
+    "NB": "NB: description", "B": "LR: balanced originals",
+    "D": "LR: balanced + section recombination", "E": "LR: balanced + copies",
+    "SVC": "SVC: balanced originals", "SVC_AUG": "SVC: balanced + section recombination",
+    "SVC_COPY": "SVC: balanced + copies",
+}
+TABLE_NAMES = {"NB": "NB", "B": "LR", "D": "LR+mix", "E": "LR+copy",
+               "SVC": "SVC", "SVC_AUG": "SVC+mix", "SVC_COPY": "SVC+copy"}
+CONFUSION_LABELS = {
+    "Cardiovascular-Pulmonary": "Cardio-Pulm.", "Dermatology": "Dermatol.",
+    "Gastroenterology": "Gastroent.", "General Medicine": "Gen. Med.",
+    "Neurology": "Neurology", "Neurosurgery": "Neurosurg.",
+    "Obstetrics-Gynecology": "Ob-Gyn.", "Ophthalmology": "Ophthalm.",
+    "Orthopedic": "Orthopedic", "Psychiatry-Psychology": "Psych.-Psych.",
+    "Radiology": "Radiology", "Surgery": "Surgery",
 }
 
 
@@ -103,26 +114,29 @@ def _read_confusion(path: Path, classes: list[str]):
     return matrix.astype(int)
 
 
-def _plot_confusion(matrix, output: Path):
+def _plot_confusion(matrix, output: Path, classes: list[str]):
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
 
-    figure, axis = plt.subplots(figsize=(3.35, 3.05), dpi=300)
+    if matrix.shape != (len(classes), len(classes)) or any(label not in CONFUSION_LABELS for label in classes):
+        raise ValueError("Confusion display labels must match the matrix classes.")
+    figure, axis = plt.subplots(figsize=(3.35, 3.45), dpi=300)
     axis.imshow(matrix, cmap="Blues", interpolation="nearest", vmin=0)
     ticks = np.arange(len(matrix))
-    axis.set_xticks(ticks, [str(i + 1) for i in ticks])
-    axis.set_yticks(ticks, [str(i + 1) for i in ticks])
+    labels = [CONFUSION_LABELS[label] for label in classes]
+    axis.set_xticks(ticks, labels, rotation=45, ha="right", rotation_mode="anchor")
+    axis.set_yticks(ticks, labels)
     axis.set_xlabel("Predicted class", fontsize=8)
     axis.set_ylabel("Supplied class", fontsize=8)
-    axis.tick_params(axis="both", labelsize=7, length=0)
+    axis.tick_params(axis="both", labelsize=7, length=0, pad=2)
     threshold = matrix.max() * 0.65
     for row in range(len(matrix)):
         for col in range(len(matrix)):
             axis.text(col, row, str(matrix[row, col]), ha="center", va="center",
-                      fontsize=6.4, color="white" if matrix[row, col] > threshold else "#17212b")
+                      fontsize=6.7, color="white" if matrix[row, col] > threshold else "#17212b")
     axis.set_xticks(np.arange(-0.5, len(matrix), 1), minor=True)
     axis.set_yticks(np.arange(-0.5, len(matrix), 1), minor=True)
     axis.grid(which="minor", color="white", linewidth=0.25)
@@ -224,6 +238,9 @@ def _validate_evaluation(experiment, summaries, records):
             saved = per_class_rows[key][row["class"]]
             for name in ("support", "precision", "recall", "f1"):
                 _close(row[name], saved[name], f"OOF/per-class {key} {row['class']} {name}")
+        if "f1_dermatology" in summary:
+            value = next(row["f1"] for row in class_metrics if row["class"] == "Dermatology")
+            _close(value, summary["f1_dermatology"], f"OOF/summary {key} Dermatology F1")
         worst = summary["worst_class"]
         if worst not in classes:
             raise ValueError("Unknown worst class in summary.")
@@ -262,7 +279,7 @@ def _error_candidates(records, oof, selection):
         corrected = plain["predicted_class"] != gold and decoded["predicted_class"] == gold
         category = ("raw_error_corrected" if corrected else "true_label_blocked" if gold in seen else
                     "matched_error_persists" if seen else "unmatched_error")
-        excerpt = re.sub(r"\s+", " ", source["transcription"] or source["description"]).strip()[:280]
+        excerpt = " ".join(re.sub(r"\s+", " ", source["transcription"] or source["description"]).strip().split()[:55])
         selected_prediction = oof[(ROW_PROTOCOL, chosen_id)][rid]["predicted_class"]
         candidates.append({
             "category": category, "protocol": ROW_PROTOCOL, "record_id": rid, "fold": plain["fold"],
@@ -278,6 +295,7 @@ def _error_candidates(records, oof, selection):
             "fallback_all_excluded": decoded.get("fallback_all_excluded", ""),
             "excluded_classes": json.dumps(seen, ensure_ascii=False),
             "training_peer_record_ids": json.dumps([r["record_id"] for r in training_peers]),
+            "corpus_annotation_labels": json.dumps(sorted({r["medical_specialty"] for r in peers.get(key, [])})),
             "transcription_characters": len(source["transcription"]),
             "interpretation_basis": (
                 "Only training-fold labels of identical available normalized (sample_name, transcription) inputs form the exclusion set. "
@@ -329,9 +347,11 @@ def build_assets(experiment: Path, selection_path: Path, output: Path, *, train_
     if not selection_path.is_file():
         return {"status": "waiting_for_selection", "selection_file": str(selection_path)}
     selection = json.loads(selection_path.read_text(encoding="utf-8-sig"))
-    if selection.get("schema_version") != 2:
-        return {"status": "waiting_for_schema_2_selection", "selection_file": str(selection_path)}
-    required_files = [experiment / name for name in ("summary.csv", "experiment.json", "metrics_per_class.csv", "oof_predictions.csv")]
+    if selection.get("schema_version") != 3:
+        return {"status": "waiting_for_schema_3_selection", "selection_file": str(selection_path)}
+    required_files = [experiment / name for name in (
+        "summary.csv", "experiment.json", "metrics_per_class.csv", "oof_predictions.csv", "gate_diagnostics.csv",
+    )]
     if any(not path.is_file() for path in required_files):
         return {"status": "waiting_for_experiment", "missing_files": [str(p) for p in required_files if not p.is_file()]}
     design = json.loads((experiment / "experiment.json").read_text(encoding="utf-8-sig"))
@@ -364,19 +384,38 @@ def build_assets(experiment: Path, selection_path: Path, output: Path, *, train_
         raise ValueError("Selected candidate identity disagrees with model/decoder.")
     summaries = _indexed(_rows(experiment / "summary.csv"))
     selected = summaries[(ROW_PROTOCOL, selected_id)]
-    for name in ("accuracy", "f1_macro", "min_f1"):
+    metric_names = ("accuracy", "f1_macro", "min_f1")
+    if "f1_dermatology" in selected:
+        metric_names += ("f1_dermatology",)
+    for name in metric_names:
         if name not in selection.get("development_metrics", {}):
             raise ValueError(f"Missing selected metric: {name}")
         _close(selection["development_metrics"][name], _number(selected, name), f"selection {name}")
     records, _ = repair_training_csv(train_path)
     classes, oof, matrices, per_class, matrix_paths = _validate_evaluation(experiment, summaries, records)
+    # The runner keeps per-class values in metrics_per_class.csv; derive this
+    # gate metric from the already checked count matrices even if summary.csv
+    # does not repeat it as a separate column.
+    for key, summary in summaries.items():
+        summary["f1_dermatology"] = next(row["f1"] for row in per_class[key] if row["class"] == "Dermatology")
+    if "f1_dermatology" not in selection.get("development_metrics", {}):
+        raise ValueError("Missing selected metric: f1_dermatology")
+    _close(selection["development_metrics"]["f1_dermatology"], selected["f1_dermatology"],
+           "selection Dermatology F1")
+    if "f1_dermatology" not in metric_names:
+        metric_names += ("f1_dermatology",)
     examples, correction_example = _error_candidates(records, oof, selection)
+    gate_rows = _rows(experiment / "gate_diagnostics.csv")
+    if not gate_rows:
+        raise ValueError("The recorded promotion diagnostics are empty.")
     output.mkdir(parents=True, exist_ok=True)
+    # Preserve the frozen decision evidence without selecting a candidate here.
+    (output / "gate_diagnostics.csv").write_bytes((experiment / "gate_diagnostics.csv").read_bytes())
     table_rows, global_rows = [], []
     for base in ("NB", "B", "SVC"):
         for protocol, decoder, scenario in ((ROW_PROTOCOL, "raw", "R"), (ROW_PROTOCOL, "exclude_seen", r"R+EX"), (GROUP_PROTOCOL, "raw", "G")):
             row = summaries[(protocol, _candidate(base, decoder))]
-            cells = [{"NB": "NB", "B": "LR (B)", "SVC": "SVC"}[base], scenario]
+            cells = [TABLE_NAMES[base], scenario]
             cells += [f"{100 * _number(row, key):.2f}" for key in ("accuracy", "f1_macro", "min_f1")]
             if (protocol, row["candidate_id"]) == (ROW_PROTOCOL, selected_id):
                 cells = [r"\textbf{" + cell + "}" for cell in cells]
@@ -384,10 +423,13 @@ def build_assets(experiment: Path, selection_path: Path, output: Path, *, train_
             global_rows.append(row)
     extra_selected = model not in {"NB", "B", "SVC"}
     if extra_selected:
-        cells = [f"LR ({model})", "R+EX" if selection["decoder"] == "exclude_seen" else "R"]
-        cells += [f"{100 * _number(selected, key):.2f}" for key in ("accuracy", "f1_macro", "min_f1")]
-        table_rows.append([r"\textbf{" + cell + "}" for cell in cells])
-        global_rows.append(selected)
+        for protocol, scenario in ((ROW_PROTOCOL, "R+EX" if selection["decoder"] == "exclude_seen" else "R"),
+                                   (GROUP_PROTOCOL, "G")):
+            row = summaries[(protocol, selected_id)]
+            cells = [TABLE_NAMES[model], scenario]
+            cells += [f"{100 * _number(row, key):.2f}" for key in ("accuracy", "f1_macro", "min_f1")]
+            table_rows.append([r"\textbf{" + cell + "}" for cell in cells] if protocol == ROW_PROTOCOL else cells)
+            global_rows.append(row)
     _tabular(output / "results.tex", "llrrr", r"System & CV & Acc. & Macro F1 & Min. F1", table_rows)
     short = {"Cardiovascular-Pulmonary": "Cardiovasc.-Pulm.", "Obstetrics-Gynecology": "Obstetrics-Gynecol.",
              "Psychiatry-Psychology": "Psychiatry-Psychol."}
@@ -397,7 +439,7 @@ def build_assets(experiment: Path, selection_path: Path, output: Path, *, train_
     class_table, alternative, class_export = [], [], []
     for i, row in enumerate(row_selected):
         label = row["class"]
-        prefix = [_tex(f"{i + 1} {short.get(label, label)}"), str(row["support"])]
+        prefix = [_tex(short.get(label, label)), str(row["support"])]
         class_table.append(prefix + [f"{100 * row[key]:.1f}" for key in ("precision", "recall", "f1")] + [f"{100 * group_selected[i]['f1']:.1f}"])
         alternative.append(prefix + [f"{100 * values[i]['f1']:.1f}" for values in (row_raw, row_masked, group_selected)])
         class_export.append({"class": label, "support": row["support"], "precision_row_selected": row["precision"],
@@ -407,25 +449,36 @@ def build_assets(experiment: Path, selection_path: Path, output: Path, *, train_
     _tabular(output / "per_class.tex", "lrrrrr", r"Specialty & $n$ & $P_R$ & $R_R$ & $F1_R$ & $F1_G$", class_table)
     _tabular(output / "per_class_comparison.tex", "lrrrr", r"Specialty & $n$ & $F1_R$ & $F1_{R+EX}$ & $F1_G$", alternative)
     _write_csv(output / "per_class_comparison.csv", class_export)
-    _plot_confusion(matrices[(ROW_PROTOCOL, selected_id)], output / "confusion_matrix.png")
+    _plot_confusion(matrices[(ROW_PROTOCOL, selected_id)], output / "confusion_matrix.png", classes)
     _write_csv(output / "error_candidates.csv", examples)
     _write_csv(output / "global_comparison.csv", global_rows)
     augmentation_rows = [summaries[(protocol, _candidate(base, decoder))]
-                         for protocol in PROTOCOLS for decoder in DECODERS for base in ("A", "B", "C", "D", "E")]
+                         for protocol in PROTOCOLS for decoder in DECODERS
+                         for base in ("B", "D", "E", "SVC", "SVC_AUG", "SVC_COPY")]
     _write_csv(output / "augmentation_summary.csv", augmentation_rows)
     deltas = []
     for protocol in PROTOCOLS:
         for decoder in DECODERS:
-            for left, right, meaning in (("C", "A", "unweighted dropout"), ("D", "B", "balanced dropout"),
-                                         ("D", "E", "dropout versus matched copies"), ("E", "B", "matched copies")):
+            for left, right, meaning in (("D", "B", "LR recombination versus originals"),
+                                         ("D", "E", "LR recombination versus matched copies"),
+                                         ("E", "B", "LR matched copies versus originals"),
+                                         ("SVC_AUG", "SVC", "SVC recombination versus originals"),
+                                         ("SVC_AUG", "SVC_COPY", "SVC recombination versus matched copies"),
+                                         ("SVC_COPY", "SVC", "SVC matched copies versus originals")):
                 first, second = (summaries[(protocol, _candidate(base, decoder))] for base in (left, right))
                 deltas.append({"protocol": protocol, "decoder": decoder, "comparison": f"{left}-{right}", "meaning": meaning,
                                **{key + "_delta_pp": 100 * (_number(first, key) - _number(second, key))
-                                  for key in ("accuracy", "f1_macro", "min_f1")}})
-    metrics = {key: _number(selected, key) for key in ("accuracy", "f1_macro", "min_f1")}
+                                  for key in metric_names}})
+    metrics = {key: _number(selected, key) for key in metric_names}
+    selected_matrix = matrices[(ROW_PROTOCOL, selected_id)]
+    most_common_error = max(
+        ({"true_class": actual, "predicted_class": predicted, "count": int(selected_matrix[i, j])}
+         for i, actual in enumerate(classes) for j, predicted in enumerate(classes) if i != j),
+        key=lambda entry: entry["count"],
+    )
     paths = [selection_path, train_path, *required_files, *matrix_paths]
     artifact_metadata = {
-        "schema_version": 2, "status": "exploratory development CV; official test never read",
+        "schema_version": 3, "status": "exploratory development CV; official test never read",
         "selected_candidate_id": selected_id, "selected_model_id": model, "decoder": selection["decoder"],
         "model": selected["model"], "protocol": ROW_PROTOCOL, "metrics": metrics,
         "grouped_metrics_same_candidate": {key: _number(summaries[(GROUP_PROTOCOL, selected_id)], key) for key in metrics},
@@ -435,11 +488,16 @@ def build_assets(experiment: Path, selection_path: Path, output: Path, *, train_
         "support": len(records), "grouped_exclusion_verified_noop_all_models": True,
         "validation": "All 28 OOF sets checked against original training IDs/labels, per-class metrics, summary and saved count matrices.",
         "augmentation_comparisons": deltas, "error_candidates": examples,
-        "error_candidate_selection": "Editorial examples 309/1383/314 when they remain selected-candidate errors; otherwise deterministic matched/unmatched fallbacks.",
+        "error_candidate_selection": "Editorial examples 1892/309/1383 when they remain selected-candidate errors; otherwise deterministic matched/unmatched fallbacks.",
         "optional_raw_error_correction": correction_example,
         "global_table_extra_selected_candidate": extra_selected,
         "table_scenarios": {"R": "row-stratified raw", "R+EX": "row-stratified full-input exclusion", "G": "note-grouped; exclusion verified no-op"},
         "confusion_matrix_scenario": {"protocol": ROW_PROTOCOL, "candidate_id": selected_id},
+        "confusion_display_labels": {label: CONFUSION_LABELS[label] for label in classes},
+        "selection_policy": selection.get("selection_policy", selection.get("selection_rule")),
+        "promotion_diagnostics": selection.get("promotion_diagnostics"),
+        "gate_diagnostics": gate_rows,
+        "most_frequent_confusion": most_common_error,
         "body_pagination": "See output/pdf/compilation.json; its source hashes must match current paper/assets.",
         "source_sha256": {str(p.relative_to(ROOT) if p.is_relative_to(ROOT) else p): _sha256(p) for p in paths},
     }
