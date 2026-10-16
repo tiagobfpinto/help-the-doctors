@@ -16,11 +16,10 @@ LABEL = "medical_specialty"
 
 # Default fields for field-aware linear models. Naive Bayes explicitly uses
 # description. Keywords are excluded because they name the target.
-# Final inference follows selected_model.json and augmentation.py.
+# Final inference uses SVC_AUG from augmentation.py.
 TEXT_FIELDS = ("sample_name", "transcription")
 CONTROLLED_OUTPUT_DIR = ROOT / "outputs" / "augmentation_controlada"
 FINAL_EVALUATION_DIR = ROOT / "outputs" / "avaliacao_recombinacao"
-SELECTED_MODEL_FILE = ROOT / "selected_model.json"
 FINAL_OUTPUT_DIR = ROOT / "outputs" / "final"
 
 # Cross-validation

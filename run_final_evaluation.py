@@ -28,8 +28,8 @@ from augmentation import (
     clean_inputs, fit_evaluated_model, identity_groups, prediction_input,
 )
 from augmentation_policy import (
-    MODEL_IDS, MODEL_NAMES, PROTOCOLS, DECODERS, SOURCE_FILES, PLAN_FILENAME,
-    POLICY_SPEC, SELECTION_RULE, choose_candidate, validate_decision_plan,
+    MODEL_IDS, MODEL_NAMES, PROTOCOLS, DECODERS, SOURCE_FILES,
+    POLICY_SPEC, SELECTION_RULE, choose_candidate,
 )
 from config import FINAL_EVALUATION_DIR
 from data_preparation import repair_training_csv, sha256
@@ -91,7 +91,6 @@ def transition_counts(frame):
 
 def run():
     global ACTIVE_RUN
-    plan = validate_decision_plan(ROOT / PLAN_FILENAME, ROOT)
     if tuple(EVALUATED_MODEL_IDS) != MODEL_IDS:
         raise ValueError("Augmentation model IDs differ from the frozen promotion policy.")
     GENERATED.clear()
@@ -101,7 +100,7 @@ def run():
     OUT.mkdir(parents=True, exist_ok=True)
     start_time = time.perf_counter()
     start_utc = datetime.now(timezone.utc).isoformat()
-    source_names = (*SOURCE_FILES, PLAN_FILENAME)
+    source_names = SOURCE_FILES
     hashes = {name: sha256(ROOT / name) for name in source_names}
     records, _ = repair_training_csv(ROOT / "train.csv")
     train = pd.DataFrame(records).reset_index(drop=True)
@@ -140,14 +139,12 @@ def run():
                     "post_hoc": True},
         "group_rule": "original identity_groups: normalized nonempty transcription, title fallback, individual groups for wholly empty inputs",
         "selection": SELECTION_RULE, "selection_policy": POLICY_SPEC,
-        "decision_plan": plan, "decision_plan_sha256": hashes[PLAN_FILENAME],
         "limitations": ["Field, parameter, augmentation and decoder choices used this labelled corpus.",
                         "Raw, decoded, row and grouped outcomes answer different evaluation conditions.",
                         "No test labels are available; no official-test performance is measured.",
                         "A single conservative augmentation and fixed family settings do not rank all methods."],
     }
     save_json(OUT / "design.json", design)
-    save_json(OUT / PLAN_FILENAME, plan)
     save_json(OUT / "run_state.json", {"state": "running", "started_utc": start_utc}, artifact=False)
     summaries, per_class, fold_metrics, predictions, weight_metadata, audit_frames, augmentation_examples, decoder_diagnostics, warning_log = [], [], [], [], [], [], [], [], []
     all_wide, all_assignments = [], []

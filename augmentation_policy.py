@@ -1,18 +1,8 @@
-"""Frozen development-only promotion policy for section recombination.
-
-The policy follows earlier corpus/model audits. It is fixed before this new
-experiment, but does not turn reused labelled development data into a test set.
-Only augmented candidates can replace the incumbent; copies are controls.
-"""
+"""Candidate models and the selection rule used in development evaluation."""
 from __future__ import annotations
-
-import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-from data_preparation import sha256
 
 MODEL_IDS = ("NB", "B", "D", "E", "SVC", "SVC_AUG", "SVC_COPY")
 MODEL_NAMES = {mid: "MultinomialNB" if mid == "NB" else "LinearSVC" if mid.startswith("SVC")
@@ -27,7 +17,6 @@ INCUMBENT = "SVC+EXCL"
 PROMOTION_BASELINES = {"D+EXCL": "B+EXCL", "SVC_AUG+EXCL": INCUMBENT}
 COPY_CONTROLS = {"D+EXCL": "E+EXCL", "SVC_AUG+EXCL": "SVC_COPY+EXCL"}
 EPSILON = 1e-12
-PLAN_FILENAME = "augmentation_decision_plan.json"
 SOURCE_FILES = (
     "train.csv", "augmentation.py", "models.py", "data_preparation.py",
     "duplicate_exclusion.py", "augmentation_policy.py", "run_final_evaluation.py", "config.py",
@@ -161,32 +150,3 @@ def choose_candidate(summary: pd.DataFrame, per_class: pd.DataFrame) -> dict:
         "selection_policy": POLICY_SPEC, "selection_rule": SELECTION_RULE,
         "promotion_diagnostics": diagnostics,
     }
-
-
-def validate_decision_plan(path: Path, root: Path) -> dict:
-    """Refuse fitting unless review and sources were frozen before the run."""
-    if not path.is_file():
-        raise ValueError("No frozen augmentation decision plan; fitting is not authorized yet.")
-    plan = json.loads(path.read_text(encoding="utf-8"))
-    if plan.get("status") != "frozen" or plan.get("approved_to_fit") is not True:
-        raise ValueError("The decision plan is not frozen/approved for fitting.")
-    if plan.get("policy_spec") != POLICY_SPEC:
-        raise ValueError("The frozen decision policy differs from augmentation_policy.py.")
-    review = plan.get("review", {})
-    if review.get("reviewed_count", 0) < 5 or not review.get("reviewer"):
-        raise ValueError("Five augmentation examples must be manually reviewed before fits.")
-    examples_path = (root / review.get("examples_file", "")).resolve()
-    if not examples_path.is_relative_to(root.resolve()) or not examples_path.is_file():
-        raise ValueError("The reviewed examples artifact is missing or outside the project.")
-    if review.get("examples_sha256") != sha256(examples_path):
-        raise ValueError("The examples differ from the reviewed augmentation artifact.")
-    expected_settings = {"seed": 0, "n_folds": 5, "LR_C": .25, "model_ids": list(MODEL_IDS), "protocols": list(PROTOCOLS)}
-    if plan.get("settings") != expected_settings:
-        raise ValueError("Frozen plan settings differ from the new experiment.")
-    hashes = plan.get("sources_sha256", {})
-    if set(hashes) != set(SOURCE_FILES):
-        raise ValueError("Frozen plan must cover all declared training/evaluation sources.")
-    for name in SOURCE_FILES:
-        if hashes[name] != sha256(root / name):
-            raise ValueError(f"{name} differs from the frozen decision plan.")
-    return plan

@@ -1,31 +1,23 @@
-# Projeto LN — grupo 64
+# Projeto LN — Grupo 64
 
-Sistema selecionado: SVC_AUG+EXCL.
-Testado com Python 3.14.3 e as versões fixadas em requirements.txt.
+`64.pdf` contém o relatório e `results.txt` as 398 previsões para o teste limpo.
 
-Na pasta extraída, executar:
+Instalar as dependências e gerar novamente as previsões:
 
-    python -m pip install -r requirements.txt
-    python classify.py
+```sh
+python -m pip install -r requirements.txt
+python classify.py
+```
 
-O segundo comando parte dos 2.669 originais de train.csv e acrescenta as
-misturas determinísticas previstas na configuração selecionada. Ajusta o
-modelo, constrói o índice só dos originais e gera results.txt: 398 linhas sem cabeçalho,
-na ordem de test_no_labels.csv. Não precisa de modelos gravados nem de
-ficheiros de validação previamente gerados. Os CSVs fornecidos na disciplina
-estão incluídos sem alterações para permitir esta reprodução numa pasta limpa.
+O modelo final é um SVC linear com recombinação de secções e exclusão de
+rótulos já observados para entradas idênticas no treino. Os CSVs fornecidos
+na disciplina estão incluídos para permitir a execução direta.
 
-Para reproduzir adicionalmente a experiência e a seleção, executar:
+Para repetir a comparação dos modelos e a validação cruzada do relatório:
 
-    python run_final_evaluation.py
-    python classify.py --select
+```sh
+python run_final_evaluation.py
+```
 
-O plano e os cinco exemplos inspecionados estão incluídos. A experiência usa
-apenas treino, com cinco folds por linhas e cinco por notas. Compara os modelos
-originais, a recombinação de secções e cópias de controlo. A seleção segue a
-regra congelada; cópias nunca substituem o sistema final. O teste só gera
-previsões e não tem métricas oficiais medidas.
-
-O PDF de entrega é 64.pdf. Não há modelos treinados, ambientes Python,
-caches ou logs dentro deste ZIP. submission_manifest.json identifica os
-ficheiros por hash; os resultados esperados correspondem ao results.txt incluído.
+Os resultados dessa comparação são guardados em `outputs/avaliacao_recombinacao/`.
+Testado com Python 3.14.3 e as versões de `requirements.txt`.
