@@ -7,3 +7,4 @@ matplotlib>=3.9,<4
 numpy>=2,<3
 joblib>=1.4,<2
 nltk>=3.9,<4
+threadpoolctl>=3.6,<4

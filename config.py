@@ -14,10 +14,14 @@ FIGURES_DIR = ROOT / "outputs" / "figures"
 
 LABEL = "medical_specialty"
 
-# Text columns the model reads, joined into one string per case.
-# Options: "description", "sample_name", "transcription", "keywords".
-# Warning: non-empty keywords always start with the specialty name (label leakage).
-TEXT_FIELDS = ("description",)
+# Default fields for field-aware linear models. Naive Bayes explicitly uses
+# description. Keywords are excluded because they name the target.
+# Final inference follows selected_model.json and augmentation.py.
+TEXT_FIELDS = ("sample_name", "transcription")
+CONTROLLED_OUTPUT_DIR = ROOT / "outputs" / "augmentation_controlada"
+FINAL_EVALUATION_DIR = ROOT / "outputs" / "avaliacao_final"
+SELECTED_MODEL_FILE = ROOT / "selected_model.json"
+FINAL_OUTPUT_DIR = ROOT / "outputs" / "final"
 
 # Cross-validation
 N_FOLDS = 5

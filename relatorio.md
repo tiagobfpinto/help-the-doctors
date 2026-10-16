@@ -1,30 +1,98 @@
-The aim of this study is to develop a classifier that predicts the medical specialty associated with a clinical case from the available clinical text.
+# Clinical Specialty Classification: Cross-Label Duplicates and Evaluation
 
-The first step was to prepare the training set. We corrected malformed quoting and extra empty columns, and reconnected transcription fragments with their respective cases. We recovered 2,669 cases across 12 medical specialties. Missing fields, partial texts and repeated transcriptions with different labels were flagged to document the ambiguity in the annotations. The original labels and all available clinical text were preserved. This preprocessing is reproducible through `data_preparation.py`.
+Group [number] — [names and contribution percentages]
 
-Some specialties have very few examples: Dermatology has only 25 cases (0.9% of the training set), compared with 893 for Surgery, approximately 36 times as many. This imbalance makes accuracy alone insufficient: a classifier can obtain many correct predictions while failing to recognise smaller classes. Limited examples can also make the estimated word weights less reliable. Moreover, 12 of the 25 Dermatology cases share their transcription with cases labelled under another specialty, mostly Surgery. We therefore examine precision, recall and F1 for each class, together with macro F1, which gives each class equal weight. Our research question is: “Which data augmentation strategy most improves the recognition of the least represented specialties in clinical text classification, and does it add anything beyond class weighting?” Augmentation and a controlled comparison of class-weighting settings remain future experiments.
+## 1. Introduction
 
-All reported metrics are calculated from pooled out-of-fold predictions using stratified five-fold cross-validation, with shuffling and seed 0. Every case is predicted by a model that was not trained on that row. Vocabulary, IDF and frequency filtering are fitted only on the training portion of each fold. This protocol allows repeated transcriptions to appear in both training and validation, so these results do not exclusively measure generalisation to unseen notes. Grouped cross-validation is available in the notebook for that purpose. The separate test file has no labels; the 49% accuracy requirement is a target, not a measured test result. We cannot infer that cross-validation is stricter than the test from that threshold.
+Identical clinical notes can carry different specialty labels. We ask: **How does cross-label duplication affect the evaluation and prediction of medical specialties from clinical text?** We distinguish new records of known notes from unseen notes, compare three model families, and test a training-only label-exclusion decoder. Collection-specific decision rules can limit transfer [1]; weighting and augmentation provide additional comparisons.
 
-To measure our starting point, we evaluated the project baseline: Multinomial Naive Bayes on TF-IDF features of `description`, with lowercasing and Porter stemming. It achieved 38.7% accuracy and 13.2% macro F1, with six specialties at F1 = 0. For clarity, the notebook's baseline without stemming achieved 38.4% accuracy and 12.8% macro F1 on the same folds. These are separate baseline variants, and their measured results are saved in `outputs/comparacao_campos_lr/baselines.csv`.
+## 2. Data
 
-We then evaluated logistic regression with balanced class weights and one TF-IDF per field, using `description`, `sample_name` and `transcription`. Its TF-IDF includes single words and word pairs, sublinear term frequency and `min_df=2`; logistic regression uses `C=1.0` and `max_iter=2000`. This configuration achieved 45.0% accuracy and 47.6% macro F1, outperforming both Naive Bayes variants on these metrics and leaving no class at F1 = 0. The comparison supports the complete configuration: because the classifier, input fields, feature settings and class weighting changed together, it does not isolate the contribution of each change. The three-field model still falls below the project requirements of accuracy above 49% and F1 of at least 25% for every class. Its lowest F1 is 20.8%, for Neurosurgery. In this class, 72 of 79 cases share their transcription with a differently labelled case. Identical transcriptions create ambiguity for a model using only that field, although the other fields may distinguish some of those cases.
+### 2.1. Data Analysis
 
-To isolate the effect of the input fields within logistic regression, we tested each field individually, each pair and all three together. The classifier, class weighting, TF-IDF parameters and exact validation folds were kept fixed; only the selected fields changed. All 2,669 cases were retained in every experiment, including cases with empty selected fields. The pooled out-of-fold results were:
+Structural CSV repairs retain 2,669 cases and supplied labels across 12 specialties. Surgery contributes 893 cases (33.5%), versus 25 for Dermatology (0.9%). Cross-label transcription duplicates affect 1,528 cases (57.2%); their descriptions and titles are also identical, including 72/79 Neurosurgery cases. Thus, imbalance and label ambiguity are distinct limitations. We retain incomplete cases and exclude `keywords`: all 2,219 nonempty values start with the target specialty.
 
-| Input fields | Accuracy | Precision macro | Recall macro | F1 macro | Lowest class F1 |
+### 2.2. Data Augmentation
+
+For four predefined minority classes (n<100: Dermatology, Neurosurgery, Ophthalmology, Psychiatry-Psychology), one variant deletes `max(1, floor(0.2m))` of m isolated, case-insensitive **the** tokens from each eligible training transcription, adapting random deletion [2]. Titles and other words remain intact; a SHA-256 seed uses seed 0, fold and record ID. Invalid/empty variants are skipped. Conditions are uniform originals (A), balanced originals (B), uniform deletion (C), balanced deletion (D), and balanced matched copies (E). D/E share sources and addition counts. Per protocol, 864/872 source visits yield variants, deleting 1.24% of their word tokens; clinical meaning preservation is unvalidated.
+
+## 3. Models
+
+Three scikit-learn families are compared [3]. Multinomial Naive Bayes (NB) implements the provided baseline: lowercased, Porter-stemmed `description`, TF-IDF, alpha=1 and empirical priors. Logistic regression (LR) and linear support vector classification (SVC) provide n-gram baselines [4]. They use separately L2-normalised `sample_name`/`transcription` TF-IDF blocks, giving nonzero field blocks equal norm. Exploratory LR ablation favoured this pair; NB differs in representation and classifier.
+
+For each query, exclusion (EX) masks classes attached to exact training matches and selects the highest-scoring remaining class. Matching always uses `sample_name`/`transcription`, including for NB, lowercased with normalised whitespace; entirely empty inputs are ignored. The index uses original training cases only. No match or all classes blocked falls back to raw prediction. A corpus hypothesis motivates EX: additional records use labels not previously assigned to that input. This is not a clinical constraint.
+
+## 4. Experimental Setup
+
+We compare five-fold `StratifiedKFold` over rows (R) with `StratifiedGroupKFold` over notes (G), both shuffled with seed 0. G groups normalised nonempty transcriptions, using titles when missing and unique IDs for entirely empty inputs. Each protocol shares folds across conditions, evaluating seven configurations with/without EX. Features, weights, augmentation and exclusion indices use training folds only; unchanged validation originals yield pooled out-of-fold accuracy, macro F1 and per-class metrics.
+
+R admits known notes; G tests unseen notes. EX must therefore be inactive in G. Field, parameter and decoder choices are exploratory [5]. Selection prioritises R accuracy subject to the project's minimum F1 ≥25%, then macro/minimum F1; otherwise macro F1 leads. The official accuracy target is >49%. G remains a separate transfer check. The official 398-case test only generates predictions; neither protocol measures its performance.
+
+### 4.1. Parameters/Hyperparameters
+
+LR/SVC use lowercased word unigram/bigram TF-IDF, sublinear term frequency, `min_df=2` (minimum document frequency), no stemming/stopword removal, L2, C=0.25 (inverse regularisation) and at most 2,000 iterations. LR uses multinomial log loss; SVC uses one-versus-rest squared hinge. Augmentation is tested only with LR. Each arm refits TF-IDF including its added texts. Balanced weights N/(12*n_class) use original training size N and class counts. Every original/child receives its class weight, then weights sum to N in every arm. Added rows still increase their sources' relative influence. D/E match counts and weights, while lexical changes can alter TF-IDF.
+
+## 5. Results
+
+Table 1 compares model families, decoders and protocols. Selected SVC+EX raises R accuracy from 46.16% to 77.56%, with 75.26% macro F1 and 48.15% minimum F1 (Dermatology). All 1,269 matched validation inputs have supplied labels absent from training matches. EX changes nothing in G, where SVC reaches 57.10% accuracy.
+
+**Table 1. Pooled out-of-fold results (%). R: row-wise; G: grouped; EX: exclusion. LR uses balanced originals (B). Grouped EX equals raw. Bold marks selection.**
+
+| System | CV | Accuracy | Macro F1 | Minimum F1 |
+|---|---|---:|---:|---:|
+| NB | R | 38.67 | 13.23 | 0.00 |
+| NB | R+EX | 55.41 | 35.35 | 0.00 |
+| NB | G | 41.14 | 15.26 | 0.00 |
+| LR (B) | R | 48.78 | 51.81 | 31.86 |
+| LR (B) | R+EX | 76.62 | 73.27 | 47.76 |
+| LR (B) | G | 55.75 | 58.19 | 45.08 |
+| SVC | R | 46.16 | 49.77 | 23.82 |
+| **SVC** | **R+EX** | **77.56** | **75.26** | **48.15** |
+| SVC | G | 57.10 | 60.28 | 43.51 |
+
+Balanced-LR macro F1 for B/D/E is 73.27/66.02/65.97% in R+EX and 58.19/53.86/53.89% in G. Both additions underperform B; differences between D/E are small. Table 2 contrasts selected-system per-class results in both protocols; Figure 1 shows its R confusion matrix.
+
+**Table 2. Selected SVC+EX support, row-wise precision/recall/F1, and grouped F1 (%). Rows define the class order in Figure 1.**
+
+| Specialty | n | P_R | R_R | F1_R | F1_G |
 |---|---:|---:|---:|---:|---:|
-| `description` | 42.9% | 42.3% | 50.7% | 44.7% | 23.5% |
-| `sample_name` | 45.1% | 43.3% | 54.2% | 46.7% | 23.7% |
-| `transcription` | 45.1% | 46.2% | 52.9% | 47.9% | 23.9% |
-| `description` + `sample_name` | 45.1% | 44.9% | 52.8% | 47.6% | 25.4% |
-| `description` + `transcription` | 44.6% | 46.0% | 50.8% | 47.0% | 20.1% |
-| `sample_name` + `transcription` | **46.4%** | **46.5%** | 53.9% | **49.0%** | **25.5%** |
-| All three fields | 45.0% | 45.8% | 51.7% | 47.6% | 20.8% |
+| 1 Cardiovascular-Pulmonary | 309 | 76.4 | 82.8 | 79.5 | 61.8 |
+| 2 Dermatology | 25 | 44.8 | 52.0 | 48.1 | 50.0 |
+| 3 Gastroenterology | 195 | 72.4 | 79.5 | 75.8 | 60.0 |
+| 4 General Medicine | 212 | 69.6 | 86.3 | 77.1 | 77.4 |
+| 5 Neurology | 184 | 69.2 | 73.4 | 71.2 | 58.0 |
+| 6 Neurosurgery | 79 | 55.5 | 83.5 | 66.7 | 45.0 |
+| 7 Obstetrics-Gynecology | 136 | 72.6 | 87.5 | 79.3 | 63.3 |
+| 8 Ophthalmology | 73 | 77.8 | 95.9 | 85.9 | 72.3 |
+| 9 Orthopedic | 300 | 73.5 | 84.0 | 78.4 | 58.2 |
+| 10 Psychiatry-Psychology | 41 | 85.7 | 87.8 | 86.7 | 82.8 |
+| 11 Radiology | 222 | 74.0 | 74.3 | 74.2 | 51.1 |
+| 12 Surgery | 893 | 95.1 | 69.4 | 80.3 | 43.5 |
 
-The strongest observed combination is `sample_name` + `transcription`: it has the highest accuracy, macro F1 and minimum class F1 among the seven configurations. Its lowest class F1 is 25.5%, for Radiology, so it meets the per-class F1 requirement, although its accuracy remains below the required threshold. Relative to the three-field model, it improves accuracy by 1.4 percentage points, macro F1 by 1.3 points and minimum class F1 by 4.6 points. Among individual fields, `sample_name` has the highest accuracy by just one correctly classified case (45.11% versus 45.07% for `transcription`), while `transcription` has the highest macro F1. The 44.7% macro F1 belongs to logistic regression using only `description`, not to the three-field configuration.
+![Figure 1. Row-wise out-of-fold confusion matrix for the selected configuration. Rows are supplied labels and columns are predictions; class order follows Table 2.](paper_assets/confusion_matrix.png)
 
-These controlled comparisons show that the choice of fields matters, but adding more fields does not automatically improve every metric. In this configuration, adding `description` to `sample_name` + `transcription` reduces accuracy, macro F1 and the minimum class F1. The two-field combination is therefore the leading candidate for the next experiments; this is an exploratory selection on the same folds, not evidence of a statistically significant advantage or a measured test-set improvement. No configuration meets both project requirements. The experiment is reproducible through `compare_logistic_fields.py` and section 9.1 of `02_treino_avaliacao.ipynb`; the comparison, per-class and per-fold metrics, predictions and settings are saved in `outputs/comparacao_campos_lr/`.
+## 6. Discussion
 
-As next steps, we will tune regularisation, compare class-weighting settings and test augmentation for the smallest classes within the training portion of each fold. `keywords` is excluded from the current models because its first term names the target specialty. Any future experiment with that field must first remove label-derived content and address label leakage. Further model selection should use separate validation or nested cross-validation to avoid presenting repeated tuning on the same folds as an independent final evaluation.
+Surgery to Orthopedic is the most frequent remaining confusion (67 cases).
 
+Three remaining R errors illustrate limits. Case 309, "Temporal cheek-neck facelift", is labelled Dermatology: excluding Surgery changes the raw prediction to Radiology, still wrong. Removing an observed label does not identify the correct remaining one. Case 1383, "Anterior lumbar fusion, L4-L5, L5-S1", is labelled Orthopedic but remains Neurosurgery: only Surgery is excluded, leaving the wrong highest score intact. Case 314, "multiple prior excisions and staged graftings", is labelled Dermatology but predicted Surgery; without a training match, EX cannot intervene. These describe decoder behaviour, not clinical causes of the raw errors.
+
+EX predicts an unobserved annotation conditioned on already observed labels, not a medically determined distinction between identical notes. Its gains depend on collection structure; future repetitions of an existing label could violate the assumption. Grouped and row-wise estimates answer different questions, so their difference is not an algorithmic improvement. Exact grouping does not eliminate approximate duplicates, patient dependence or selection bias. The deletion result concerns one conservative transformation, not augmentation in general.
+
+## 7. Future Work
+
+We would test exclusion on independent collections and adjudicated multi-label notes, separating annotation completion from specialty recognition. Nested selection and medically grounded lexical augmentation would address selection uncertainty and limited textual diversity.
+
+**LLM use.** Codex assisted implementation, literature search, analysis and writing; an external Claude review prompted the protocol/decoder audit. Augmentation uses deterministic local rules, without LLM-generated clinical cases.
+
+## Bibliography
+
+[1] Geirhos et al. (2020). [Shortcut Learning in Deep Neural Networks](https://arxiv.org/abs/2004.07780). Nature Machine Intelligence.
+
+[2] Wei and Zou (2019). [EDA: Easy Data Augmentation Techniques for Boosting Performance on Text Classification Tasks](https://aclanthology.org/D19-1670/).
+
+[3] Pedregosa et al. (2011). [Scikit-learn: Machine Learning in Python](https://jmlr.org/papers/v12/pedregosa11a.html).
+
+[4] Wang and Manning (2012). [Baselines and Bigrams: Simple, Good Sentiment and Topic Classification](https://aclanthology.org/P12-2018/).
+
+[5] Cawley and Talbot (2010). [On Over-fitting in Model Selection and Subsequent Selection Bias in Performance Evaluation](https://www.jmlr.org/papers/v11/cawley10a.html).

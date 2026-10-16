@@ -1,0 +1,40 @@
+{
+  "candidate_id": "SVC+EXCL",
+  "model_id": "SVC",
+  "model": "LinearSVC",
+  "decoder": "exclude_seen",
+  "protocol": "stratified_rows_development",
+  "development_metrics": {
+    "accuracy": 0.775571375046834,
+    "f1_macro": 0.7526449625704905,
+    "min_f1": 0.4814814814814814
+  },
+  "grouped_protocol": "grouped_development",
+  "grouped_metrics": {
+    "accuracy": 0.5710003746721618,
+    "f1_macro": 0.6027938688789084,
+    "min_f1": 0.435132957292506
+  },
+  "meets_development_thresholds": true,
+  "schema_version": 2,
+  "selection_rule": "Use only seed-0 five-fold stratified-row development metrics. Among all fourteen classifier/decoder candidates with minimum per-class F1 >= 0.25, maximize accuracy, then macro F1, then minimum F1, then alphabetical candidate ID. If none satisfy the F1 constraint, maximize macro F1, then accuracy and minimum F1. Report the same candidate's grouped metrics; never select the larger score across protocols.",
+  "evaluation_status": "Exploratory development selection after corpus/annotation inspection and external methodological review; neither row nor grouped CV is an independent post-selection test evaluation. Exclusion assumes that an identical input's next annotation tends to use a previously unseen label.",
+  "train_sha256": "028a886eca5f26ff61d9cf59ed087efd91d2689e879eac844be44b222f582dc1",
+  "experiment_directory": "outputs/avaliacao_final",
+  "summary_sha256": "91dad5ba8837a19eaede8d5694b3e45726ba4edba436f5704b408e5d77ca319d",
+  "experiment_sha256": "685b9f81044a2b9ba64d53af253975973955b5caf8445660b25e54436e72fd0f",
+  "implementation_sha256": {
+    "augmentation.py": "45fb17af47d55210288cdd0ed3ddf47fce31d635d300cf64349e7e75d468c821",
+    "models.py": "ae70890aa3b86092bef4969e01cdf15d6d8f891d0d4ce58e0d895085cbf60137",
+    "data_preparation.py": "ca3b8f6b908cb0fa0f3b08e4a7a60ae719c2ccacbdb74807d2d91138cf73024f",
+    "duplicate_exclusion.py": "7defe047fa48ff4de32c69c34c8bfcf6f2890da91e10606dbba1f2c61898589d"
+  },
+  "inference_implementation_sha256": {
+    "classify.py": "9923d55ad97a907d8009554d3febf5f4a8caf4710f4631764871eba547c16c2f",
+    "read_test_set.py": "f47639089fc4df674b425a677da5d66394ac96eba03b6c9085d7e8431880d4cd",
+    "config.py": "dd0bd68d5c6685371f53f41f9d7db2fecf19936be33bdefeedeaab9b0fa55429"
+  },
+  "LR_C": 0.25,
+  "seed": 0,
+  "n_folds": 5
+}

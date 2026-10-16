@@ -4,3 +4,6 @@ __pycache__/
 .pytest_cache/
 data/processed/
 outputs/
+.tools/
+output/
+tmp/pdfs/

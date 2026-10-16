@@ -1,7 +1,7 @@
 """Load the train and test sets as DataFrames.
 
-Both are read from the original files through the same repair code that
-data_preparation.py and read_test_set.py use, so there is one source of truth.
+Training uses the structural repair in data_preparation.py. The clean, unlabeled
+test uses the strict CSV reader in read_test_set.py, without repairing its text.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def load_train() -> pd.DataFrame:
 
 
 def load_test() -> pd.DataFrame:
-    """The 409 test cases, in the order of results.txt. Never use them for training."""
+    """Clean test cases in results.txt order; reserved for final predictions."""
     return pd.DataFrame(read_test_cases(TEST_FILE))[TEST_COLUMNS]
 
 

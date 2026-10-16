@@ -1,153 +1,149 @@
 # Help the doctor
 
-O notebook `01_preparacao_dados.ipynb` executa a reparação estrutural e a auditoria
-do `train.csv`. As funções estão em `data_preparation.py`, para poderem também ser
-testadas e reutilizadas. O dataset original e `test_no_labels.csv` não são alterados.
+O percurso atual está em **03_experiencia_controlada.ipynb**. A pergunta é:
+**How does cross-label duplication affect the evaluation and prediction of
+medical specialties from clinical text?** O projeto compara Naive Bayes,
+regressão logística e LinearSVC, pesos de classe, augmentation conservadora,
+cópias de controlo e exclusão das classes já observadas para o mesmo input.
 
-O notebook **`02_treino_avaliacao.ipynb`** contém o percurso completo: preparação
-dos dados originais, exploração das classes, pré-processamento do texto, TF-IDF,
-treino e validação cruzada, comparação com baselines, accuracy, precision, recall
-e F1 globais e por classe, matrizes de confusão e análise dos erros. No fim, treina
-o modelo final, guarda as métricas e o modelo e gera as previsões do teste.
-Pode ser executado diretamente, sem correr primeiro o notebook 01.
+A avaliação final mantém dois cenários explícitos: cinco folds estratificados
+por **linhas** e cinco folds agrupados por **nota**. As mesmas configurações
+são avaliadas nos dois, sem escolher o protocolo com o maior score. A seleção
+usa desenvolvimento por linhas; o resultado agrupado do mesmo candidato
+descreve generalização a notas inéditas. Ambos são desenvolvimento exploratório
+após inspeção deste corpus, sem avaliação independente após seleção.
 
-## Executar
+## Executar e reproduzir
 
-Para gerar diretamente o dataset, os relatórios e o leitor, na pasta do projeto:
-
-```powershell
-python data_preparation.py
-```
-
-Esta alternativa usa apenas a biblioteca padrão de Python e as mesmas funções do
-notebook. Os caminhos são calculados a partir da localização do script.
-
-Para explorar também as tabelas e explicações no notebook, cria um ambiente Python
-e instala as dependências:
+Na pasta do projeto, criar um ambiente Python e instalar dependências:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m jupyter lab
 ```
 
-Abre o notebook e executa **Restart Kernel and Run All Cells**. Em VS Code, seleciona
-o Python de `.venv` como kernel e usa **Run All**.
-
-No notebook 02, altera apenas a célula **Configuração da experiência** para escolher
-os campos, o modelo principal, os folds e os parâmetros. O modelo inicial é uma
-regressão logística com TF-IDF separado por campo e pesos de classe equilibrados;
-é comparado com o Naive Bayes da descrição e com a classe mais frequente. `keywords`
-fica excluído porque contém a especialidade. A validação estratificada reproduz
-o protocolo dos scripts; `CV_MODE = "grouped"` mantém transcrições repetidas no mesmo
-fold para avaliar a generalização a outras notas. O notebook mostra a sobreposição
-de transcrições em cada fold e identifica o protocolo nas métricas exportadas.
-
-Na secção **9.1**, `COMPARE_LR_FIELDS = True` compara os três campos individualmente,
-os três pares e todos juntos, mantendo a regressão logística, os parâmetros TF-IDF
-e os folds fixos. A tabela mostra accuracy, precision/recall/F1 macro, F1 mínimo
-e os critérios do projeto. Esta etapa acrescenta alguns minutos à execução.
-As tabelas por classe e fold, as previsões OOF, os parâmetros e o gráfico ficam em
-`outputs/comparacao_campos_lr/`. Usa `COMPARE_LR_FIELDS = False` para omitir esta etapa.
-
-Os resultados desta experiência ficam em `outputs/notebook/`: tabelas CSV,
-gráficos, previsões de validação, `experiencia.json`, `modelo.joblib` e `results.txt`
-(409 previsões, sem cabeçalho). O `results.txt` na raiz só é substituído se
-`WRITE_ROOT_RESULTS = True`. O teste não tem rótulos; as métricas são calculadas
-apenas nas previsões de validação cruzada do treino.
-
-Instalação do Jupyter: https://jupyter.org/install
-
-## Regras de reparação
-
-- Uma descrição com uma única aspa de abertura e sem os restantes campos é
-  preservada. Os campos indisponíveis ficam vazios e o caso é marcado como parcial.
-- Dois campos vazios excedentes são removidos apenas quando existem sete campos
-  e os primeiros cinco têm a estrutura esperada.
-- Uma continuação sem especialidade é ligada à transcrição do caso imediatamente
-  anterior apenas quando esse caso tinha campos vazios excedentes. É inserida uma
-  quebra de linha. Caracteres em falta não são reconstruídos e aspas que já fazem
-  parte do texto descodificado são preservadas.
-- Estruturas desconhecidas interrompem a execução. Esta reparação por linha física
-  aplica-se ao ficheiro fornecido, não a CSVs arbitrários com campos multilinha.
-
-Os rótulos, a ordem dos casos e todo o texto disponível são preservados. Não se
-eliminam classes, textos repetidos nem casos com campos vazios. No relatório, uma
-transcrição repetida com rótulos diferentes é uma ambiguidade assinalada, não uma
-decisão automática de correção. Uma transcrição vazia não é agrupada com outros vazios.
-
-## Conjunto de teste
+O percurso completo, incluindo a auditoria e as sensibilidades de seeds 1/2:
 
 ```powershell
-python read_test_set.py
+.\.venv\Scripts\python.exe audit_duplicate_exclusion.py
+.\.venv\Scripts\python.exe audit_duplicate_key_sensitivity.py
+.\.venv\Scripts\python.exe run_final_evaluation.py
+.\.venv\Scripts\python.exe classify.py --select
+.\.venv\Scripts\python.exe build_paper_assets.py
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_paper.ps1 -Offline
 ```
 
-`read_test_cases()` é a leitura que o `predict.py` deve usar, e `write_results()`
-escreve o `results.txt`, uma especialidade por linha, sem cabeçalho. A linha N do
-`results.txt` corresponde ao registo CSV N, não à linha física N.
+Os dois primeiros comandos reproduzem a revisão exploratória. A avaliação
+final refaz a comparação principal com o helper de produção; reutiliza
+opcionalmente os scores das seeds 1/2 para verificar a equivalência do decoder,
+sem os usar na seleção. Sem aquela auditoria, a comparação principal continua
+completa, mas a sensibilidade adicional não estará disponível.
 
-- O `test_no_labels.csv` não tem cabeçalho. `pd.read_csv(..., sep=";")` toma o
-  primeiro caso como cabeçalho e devolve 408 casos em vez de 409.
-- O ficheiro tem 452 linhas físicas e 409 registos CSV. Lido e reescrito com o
-  módulo `csv`, reproduz o original byte a byte, por isso é a exportação de uma
-  tabela com 409 casos.
-- Quatro registos têm uma descrição que se estende por 9 a 15 linhas físicas. As
-  linhas extra começam por uma especialidade: são texto de outros casos que ficou
-  dentro da célula, e não casos do teste. O modelo recebe apenas a primeira linha.
-  Os rótulos embutidos ficam na auditoria e não são usados.
-- Cada um desses registos é seguido por uma linha só com keywords. No treino
-  seria ligada ao caso anterior. Aqui é um registo da tabela e recebe uma previsão.
-- Nenhum registo é removido ou juntado. O número esperado (409) está fixo em
-  `EXPECTED_TEST_CASES`, para que uma alteração na leitura pare a execução.
+Apenas o quarto comando lê o teste oficial: primeiro seleciona o candidato e
+ajusta o classificador e o índice em todos os **2.669 originais**; depois gera
+as **398 previsões**, uma especialidade por linha, sem cabeçalho e na ordem
+original. Nenhuma estatística de correspondências do teste entra na escolha
+do modelo. O teste não tem rótulos e não tem métricas medidas.
 
-## Modelos
+Para regenerar apenas as previsões, usar classify.py sem --select. Esse
+comando reutiliza selected_model.json e verifica hashes do treino, código e
+configuração. Alterações de dados, implementação ou avaliação requerem repetir
+as etapas correspondentes; as verificações rejeitam seleções antigas ou
+artefactos incompatíveis em vez de reutilizá-los silenciosamente.
 
-```powershell
-.\.venv\Scripts\python.exe classify.py        # CV no treino e depois results.txt
-.\.venv\Scripts\python.exe explore_tfidf.py   # heatmaps de TF e TF-IDF
-.\.venv\Scripts\python.exe compare_logistic_fields.py  # os 7 conjuntos de campos, mesma LR e folds
-```
+O notebook 03 permite explorar as mesmas etapas. Por omissão reutiliza uma
+avaliação concluída e verificada; REPEAT_EXPERIMENT=True volta a executá-la.
+Os notebooks 01 e 02 documentam preparação e exploração anteriores; o 02
+é histórico e não substitui a seleção final atual.
 
-| Ficheiro | Responsabilidade |
+## Classificação e exclusão
+
+NB segue a baseline especificada: TF-IDF de description em minúsculas,
+Porter stemming, MultinomialNB com alpha=1 e priors empíricos. LR e SVC usam
+TF-IDF separado de sample_name e transcription, unigramas/bigramas,
+min_df=2, TF sublinear, C=0.25 e até 2.000 iterações. A implementação e as
+versões efetivamente usadas ficam registadas nos manifestos.
+
+A chave da exclusão é o par completo **sample_name + transcription**, em
+minúsculas e com espaços normalizados. O índice contém só os originais do
+treino do fold, nunca validação nem descendentes sintéticos. Inputs
+totalmente vazios não coincidem. Para um input conhecido, o decoder exclui
+todas as classes presentes nas suas cópias de treino e escolhe o maior score
+restante. Sem correspondência, ou se todas as classes forem excluídas,
+mantém a previsão original. NB também usa esse par no lookup, embora o seu
+classificador leia apenas description.
+
+A regra explora uma regularidade da anotação: outra cópia tende a representar
+uma especialidade ainda não observada. **Não é uma regra médica nem uma
+garantia para outra coleção.** A identidade completa evita o contraexemplo de
+transcrições limitadas a CHIEF COMPLAINT: sob títulos diferentes. A validação
+agrupada verifica que o decoder fica inativo em notas inéditas.
+
+Cada uma das sete configurações base é avaliada com decoder normal e com
+exclusão, totalizando 14 candidatos em cada cenário. Entre candidatos com F1
+mínimo >=25%, seleciona-se a maior accuracy por linhas, depois macro F1 e F1
+mínimo, com desempate determinístico. Se nenhum cumprir a restrição, prioriza-se
+macro F1. O requisito de accuracy é estritamente >49%. A escolha não constitui
+uma medição dos quatro pontos automáticos no teste oficial.
+
+## Augmentation e dados
+
+Os braços LR são A: uniformes; B: balanced; C: uniformes + article dropout;
+D: balanced + dropout; E: balanced + cópias das mesmas fontes aceites em D.
+A transformação remove max(1,floor(0.2*m)) de m ocorrências isoladas de
+the apenas da transcrição, numa variante por fonte elegível das quatro
+classes com menos de 100 exemplos. Títulos e outros tokens são preservados.
+A taxa é sobre ocorrências do artigo, não 20% do texto. Não há validação
+clínica nem geração de casos por LLM.
+
+Os pesos de classe são estimados nos originais de cada treino; a massa total
+é normalizada ao número de originais. D/E têm as mesmas fontes, contagens e
+pesos, refazendo TF-IDF nos respetivos textos de treino. Validação e teste
+nunca são aumentados. A conclusão limita-se a esta transformação e orçamento.
+
+data_preparation.py repara a estrutura CSV conservando rótulos, ordem e texto
+disponível. Campos incompletos e conflitos ficam documentados; não são
+corrigidos por julgamento médico. keywords é excluído porque todos os seus
+2.219 valores não vazios começam pela classe. train.csv e o teste limpo
+recebido são preservados byte a byte. O leitor do teste usa csv sem cabeçalho,
+exige quatro campos e 398 registos, sem as heurísticas da versão antiga.
+
+## Paper e entrega
+
+relatorio.md contém o texto de trabalho; paper.tex e paper.bib seguem o
+template e usam os artefactos em paper_assets/. Tectonic está instalado
+localmente em .tools/tectonic/. Num checkout novo, executar install_latex.ps1;
+o primeiro build pode precisar de rede, omitindo -Offline.
+
+O PDF fica em output/pdf/paper.pdf. O build regista hashes e contagem em
+output/pdf/compilation.json e rejeita mais de três páginas de corpo.
+A bibliografia está excluída desse limite pelo template. Grupo, autores e
+percentagens de contribuição ficam por preencher, por decisão do utilizador:
+preenchê-los e recompilar antes de entregar.
+
+O enunciado exige **NUM.zip**, contendo **NUM.pdf**, **results.txt**,
+**código do projeto** e eventuais datasets adicionais recolhidos. Exclui
+os modelos treinados. Não incluir .venv/, .tools/, caches ou modelos joblib.
+A submissão é pelo Fénix até **16 de outubro de 2026, às 23h59**.
+Os datasets originais têm de estar disponíveis na raiz para reproduzir o código.
+
+## Artefactos e verificações
+
+| Caminho | Conteúdo |
 |---|---|
-| `config.py` | Caminhos e parâmetros: campos de texto, folds, seed, critérios |
-| `data.py` | Carrega treino e teste a partir dos ficheiros originais, com a reparação |
-| `models.py` | Naive Bayes e regressão logística com TF-IDF por campo, em Pipelines |
-| `evaluation.py` | Validação cruzada estratificada e verificação dos critérios |
-| `classify.py` | Avalia o modelo escolhido e escreve o `results.txt` |
-| `explore_tfidf.py` | Exploração das matrizes TF e TF-IDF |
-| `compare_logistic_fields.py` | Comparação dos campos com a mesma regressão logística e os mesmos folds |
-
-## Ficheiros gerados
-
-| Ficheiro | Conteúdo |
-|---|---|
-| `data/processed/train_clean.csv` | Dataset reparado, com os cinco campos originais |
-| `outputs/auditoria/repairs.csv` | Cada alteração, a linha original e a regra aplicada |
-| `outputs/auditoria/record_audit.csv` | Correspondência entre registos e linhas originais, campos vazios e grupos repetidos |
-| `outputs/auditoria/summary.json` | Contagens e hashes dos ficheiros de origem e reparado |
-| `outputs/dados-legiveis/ler_dataset_clean.html` | Leitor do dataset reparado, com pesquisa, filtros e anotações |
-| `data/processed/test_clean.csv` | Teste lido, um caso por registo, pela ordem do `results.txt` |
-| `outputs/auditoria/test_record_audit.csv` | Linhas de origem de cada caso de teste, reparações e rótulos embutidos |
-| `outputs/auditoria/test_summary.json` | Contagens do teste, incluindo a comparação com o pandas |
-
-Os CSVs usam `;` e UTF-8 com BOM. Os ficheiros gerados são ignorados pelo Git e
-podem ser recriados executando o script ou o notebook. O leitor e o Excel criados anteriormente
-referem-se à interpretação inicial do CSV; o novo leitor tem números de registo
-diferentes e conserva a correspondência com as linhas do ficheiro original.
-
-## Verificações
+| outputs/avaliacao_final/ | Desenho, hashes, 28 resultados, OOF, métricas por classe/fold, matrizes, erros e auditorias |
+| selected_model.json | Candidato, classificador, decoder, dois cenários, regra de seleção e proveniência |
+| outputs/final/inference.json | Ajuste completo, hashes e contagem do teste/previsões, sem métricas oficiais |
+| outputs/final/decoding_diagnostics.csv | Decisões do decoder na inferência, pela ordem dos casos |
+| outputs/final/before_exclusion/ | Cópia preservada das previsões e seleção anteriores à correção |
+| paper_assets/ | Tabelas, matriz e métricas validadas para o paper |
+| auditoria_validacao_exclusao.md | Motivação e reprodução da correção metodológica |
+| outputs/auditoria_exclusao/ | Auditoria exploratória anterior, separada da comparação final |
+| outputs/augmentation_controlada/ | Experiência agrupada histórica; não é a seleção final atual |
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-O notebook verifica também a cobertura de todas as linhas de origem, a preservação
-da ordem e das especialidades, e a igualdade dos campos após exportar e reler o CSV.
-Uma nova execução substitui apenas os ficheiros gerados pelo mesmo processo.
-
-Para avaliar a generalização a notas novas, os splits devem manter cada grupo de
-transcrições repetidas no mesmo conjunto (`CV_MODE = "grouped"` no notebook 02).
-O protocolo estratificado dos scripts permite repetições entre folds; os seus
-resultados respondem a uma condição de avaliação diferente. TF-IDF e eventual
-data augmentation devem ser ajustados apenas ao treino de cada fold.
+Os outputs ignorados pelo Git podem ser recriados. Os scripts e o notebook
+não dependem de um modelo treinado previamente guardado.
